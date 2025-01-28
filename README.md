@@ -12,6 +12,6 @@
 Real-world experiments with two quadrotors using the same network achieve **a maximum speed of 13.65 m/s** and **a maximum body rate of 13.4 rad/s** in a *5.5 m x 5.5 m x 2.0 m* space across various tracks, **relying entirely on onboard computation**.
 
 ### Related Papers
-- [**Dashing for the Golden Snitch: Multi-Drone Time-Optimal Motion Planning with Multi-Agent Reinforcement Learning**](https://arxiv.org/abs/2409.16720),  Wang, X., Zhou, J., Feng, Y., Mei, J., Chen, J., & Li, S. (2024), arXiv preprint arXiv:2409.16720.
+- [**Dashing for the Golden Snitch: Multi-Drone Time-Optimal Motion Planning with Multi-Agent Reinforcement Learning**](https://arxiv.org/abs/2409.16720),  Wang, X., Zhou, J., Feng, Y., Mei, J., Chen, J., & Li, S. (2024), arXiv preprint arXiv:2409.16720. **Accepted at ICRA 2025**.
 
 # The public and release version is coming soon...
