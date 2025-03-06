@@ -5,6 +5,13 @@
 - This project is **a reimplementation of** [gym-pybullet-drones](https://github.com/utiasDSL/gym-pybullet-drones), **optimized for multi-agent scenarios**. We have adjusted the code to make it more suitable for handling a large number of agents simultaneously.
 - We **customize PPO** in *a centralized training, decentralized execution* (CTDE) fashion, based on [stable-baselines3](https://github.com/DLR-RM/stable-baselines3) and inspired by the [on-policy(MAPPO)](https://github.com/marlbenchmark/on-policy) repository.
 
+### News
+
+- **March 5, 2025**: The camera-ready version of our paper has been updated on [arXiv](https://arxiv.org/abs/2409.16720).
+- **January 27, 2025**: Our paper has been accepted to **ICRA 2025**!
+- **September 25, 2024**: Paper preprint available on arXiv.
+- **Coming Soon**: The public and release version is coming soon...
+
 ### Demonstration Video
 
 [![Demonstration](https://img.youtube.com/vi/KACuFMtGGpo/maxresdefault.jpg)](https://youtu.be/KACuFMtGGpo)
