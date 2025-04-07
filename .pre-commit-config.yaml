@@ -1,0 +1,6 @@
+repos:
+  - repo: git@github.com:psf/black.git
+    rev: 24.10.0
+    hooks:
+      - id: black
+        args: ["--config=pyproject.toml"]

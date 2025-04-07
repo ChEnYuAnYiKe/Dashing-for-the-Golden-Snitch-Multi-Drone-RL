@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    # branches:
+    #   - main
+    tags:
+      - 'v*'  
+  pull_request:
+    branches:
+      - main
+  release:
+    types:
+      - created
+
+jobs:
+  test-linux-gpu:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # matrix:
+      #   python-version: ["3.9"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+          
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install Dependencies
+        run: |
+          pip install black==24.10.0
+          pip install -e .
+
+      - name: Black Format Check
+        run: black --check .
+
+      - name: Run tests
+        run: pytest
