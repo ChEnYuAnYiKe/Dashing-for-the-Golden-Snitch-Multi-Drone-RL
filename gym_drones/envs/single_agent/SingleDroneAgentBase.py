@@ -211,6 +211,12 @@ class SingleDroneAgentBase(DroneBase):
         initial_obs = self._computeObs()
         #### Return the initial info ########################
         initial_info = self._computeInfo()
+        # Crashed
+        self.crashed = np.full(self.NUM_DRONES, False)
+        # Finished
+        self.finished = np.full(self.NUM_DRONES, False)
+        # run the track
+        self.run_track = False
         return initial_obs, initial_info
 
     ################################################################################

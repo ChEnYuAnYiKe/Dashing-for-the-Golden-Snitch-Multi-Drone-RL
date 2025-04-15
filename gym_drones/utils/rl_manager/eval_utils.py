@@ -1,15 +1,24 @@
-import os
+import os, yaml
 import numpy as np
 import torch as th
 import gymnasium as gym
-from typing import Union, Optional, Callable
+from typing import Union, Optional, Callable, Tuple
 
 from stable_baselines3 import PPO
 
 from gym_drones.utils.Logger import Logger
+from gym_drones.utils.rl_manager.EvalCallback import (
+    EvalBaseCallback,
+    ConvertCallback,
+    EvalCallbackList,
+    EvalRewardCallback,
+    EvalTimeCallback,
+)
+from gym_drones.utils.utils import get_latest_run_id
+from gym_drones.utils.rl_manager.config import _save_config
 
 
-def get_predict_fn(
+def _get_predict_fn(
     model: Union[PPO, th.nn.Module], config_dict: dict
 ) -> Callable[[np.ndarray], Union[np.ndarray, tuple]]:
     """Get the prediction function for the model.
@@ -42,7 +51,7 @@ def get_predict_fn(
     return predict_fn
 
 
-def get_save_path(config_dict: dict, current_dir: Union[str, os.PathLike]) -> os.PathLike:
+def _get_save_path(config_dict: dict, current_dir: Union[str, os.PathLike]) -> os.PathLike:
     """Get the save path for the evaluation results.
 
     Parameters
@@ -70,7 +79,10 @@ def get_save_path(config_dict: dict, current_dir: Union[str, os.PathLike]) -> os
         "evals",
     )
     eval_name = config_dict["pyrl"].get("eval_name", config_dict["pyrl"]["exp_name"])
-    eval_id = config_dict["logging"]["eval_id"]
+    eval_id = get_latest_run_id(eval_save_path, eval_name)
+    if eval_id > 0 and config_dict["logging"]["eval_overwrite"]:
+        eval_id -= 1
+    config_dict["logging"]["eval_id"] = eval_id
     output_folder = os.path.join(
         eval_save_path,
         f"{eval_name}_{eval_id + 1}",
@@ -85,50 +97,361 @@ def get_save_path(config_dict: dict, current_dir: Union[str, os.PathLike]) -> os
     return output_folder
 
 
-def eval_model(
-    model: Union[PPO, th.nn.Module],
+def _init_callback(
     env: gym.Env,
-    config_dict: dict,
-    current_dir: Union[str, os.PathLike],
-    eval_loop: int = 3,
-    save_results: bool = True,
-    comment: str = "results",
-) -> Logger:
-    """Evaluate the model.
+    callback: Optional[EvalBaseCallback] = None,
+) -> EvalBaseCallback:
+    """Initialize the callback.
 
     Parameters
     ----------
-    model : PPO
-        The PPO model to be evaluated.
+    env : gym.Env
+        The environment to be used for evaluation.
+    callback : Optional[EvalBaseCallback], optional
+        The callback to be used for evaluation, by default None
+        If None, a default callback will be used.
+        If a list, it will be converted to a CallbackList.
+
+    Returns
+    -------
+    EvalBaseCallback
+        The initialized callback.
+    """
+    # Convert a list of callbacks into a callback
+    if isinstance(callback, list):
+        callback = EvalCallbackList(callback)
+
+    # Convert functional callback to object
+    if not isinstance(callback, EvalBaseCallback):
+        callback = ConvertCallback(callback)
+
+    callback.init_callback(env)
+    return callback
+
+
+def _calculate_path_length(waypoints: np.ndarray) -> float:
+    """calculate the path length of the waypoints.
+
+    Parameters
+    ----------
+    waypoints : np.ndarray
+        The waypoints of the track.
+
+    Returns
+    -------
+    float
+        The path length of the waypoints.
+
+    """
+    total_length = 0
+    for i in range(1, len(waypoints)):
+        p1, p2 = waypoints[i - 1], waypoints[i]
+        segment_length = np.sqrt(np.sum((p2 - p1) ** 2))
+        total_length += segment_length
+    return total_length
+
+
+def _output_track_info(
+    track_name: str,
+    track_num_drones: int,
+    same_track: bool,
+    repeat_lap: int,
+    WPs: np.ndarray,
+    start_points: np.ndarray,
+    end_points: np.ndarray,
+    verbose: int = 0,
+) -> None:
+    """Output the track information.
+
+    Parameters
+    ----------
+    track_name : str
+        The name of the track.
+    track_num_drones : int
+        The number of drones in the track.
+    same_track : bool
+        Whether the drones are flying the same track or not.
+    repeat_lap : int
+        The number of laps to be repeated.
+    WPs : np.ndarray
+        The waypoints of the track.
+    start_points : np.ndarray
+        The start points of the track.
+    end_points : np.ndarray
+        The end points of the track.
+    verbose : int, optional
+        The verbosity level, by default 0
+        0: no output
+        1: basic output
+        2: detailed output
+
+    """
+    if verbose > 0:
+        print("[TRACK INFO]")
+        print(f"Track name: {track_name}")
+        print(f"Same track: {same_track}")
+        print(f"Repeat lap: {repeat_lap}")
+
+        if verbose > 1:
+            start_points_len = len(start_points[0])
+            end_points_len = len(end_points[0])
+            track_len = len(WPs[0])
+            loop_len = (track_len - start_points_len - end_points_len) / repeat_lap
+
+            for nth_drone in range(track_num_drones):
+                # initialize the counters
+                start_count = 0
+                end_count = 0
+                loop_count = 0
+                # get the waypoints for the drone
+                waypoints = WPs[nth_drone]
+                if same_track:
+                    header = f"{track_name} - Same track for all drones"
+                else:
+                    header = f"{track_name} - Drone {nth_drone + 1}/{track_num_drones}"
+                print("\n" + "=" * 50)
+                print(f"{header:^50}")
+                print("=" * 50)
+                print("{:<5} {:<15} {:<15} {:<15}".format("Pt#", "X-coord(m)", "Y-coord(m)", "Z-coord(m)"))
+                print("-" * 50)
+
+                for i, point in enumerate(waypoints):
+                    loop_name = ""
+                    if (
+                        (i - start_points_len) % loop_len == 0
+                        and i >= start_points_len
+                        and i <= len(waypoints) - end_points_len
+                    ):
+                        print("-" * 50)
+                        if i < len(waypoints) - end_points_len:
+                            loop_count += 1
+                            loop_wp_id = 1
+                            loop_name = f" (Loop {loop_count}/{repeat_lap})"
+
+                    point_name = ""
+                    if i < start_points_len:
+                        start_count += 1
+                        point_name = f"Waypoint{start_count}"
+                        if i == 0:
+                            point_name += " (Start)"
+                    elif i >= len(waypoints) - end_points_len:
+                        end_count += 1
+                        point_name = f"Waypoint{end_count}"
+                        if i == len(waypoints) - end_points_len:
+                            point_name += " (End)"
+                    else:
+                        point_name = f"Waypoint{loop_wp_id}" + loop_name
+                        loop_wp_id += 1
+
+                    print(
+                        "{:<5} {:<15.4f} {:<15.4f} {:<15.2f} {}".format(i + 1, point[0], point[1], point[2], point_name)
+                    )
+
+                print("=" * 50)
+                print(f"Total: {len(waypoints)} points, Path length: {_calculate_path_length(waypoints):.2f}m")
+                if same_track and track_num_drones > 1:
+                    for mth_drone in range(track_num_drones):
+                        # print the start and end points for all drones
+                        header = f"Drone {mth_drone + 1} specific points"
+                        print("\n" + "=" * 50)
+                        print(f"{header:^50}")
+                        print("=" * 50)
+                        print("{:<10} {:<12} {:<12} {:<12}".format("Type", "X-coord(m)", "Y-coord(m)", "Z-coord(m)"))
+                        print("-" * 50)
+
+                        # print the start points
+                        for j, start_point in enumerate(start_points[mth_drone]):
+                            print(
+                                "{:<10} {:<12.4f} {:<12.4f} {:<12.2f}".format(
+                                    f"Start {j+1}", start_point[0], start_point[1], start_point[2]
+                                )
+                            )
+
+                        # print the end points
+                        for j, end_point in enumerate(end_points[mth_drone]):
+                            print(
+                                "{:<10} {:<12.4f} {:<12.4f} {:<12.2f}".format(
+                                    f"End   {j+1}", end_point[0], end_point[1], end_point[2]
+                                )
+                            )
+                    break  # only print once for same track
+
+
+def _read_track(
+    current_dir: Union[str, os.PathLike], env: gym.Env, track_name: str, verbose: int = 0
+) -> Tuple[np.ndarray, str, dict]:
+    """Read the track information.
+
+    Parameters
+    ----------
+    current_dir : str or os.PathLike
+        The current directory where the track file is located.
+    env : gym.Env
+        The environment to be used for evaluation.
+    track_name : Union[str, os.PathLike]
+        The name of the track to be used for evaluation.
+    verbose : int, optional
+        The verbosity level, by default 0
+
+    Returns
+    -------
+    np.ndarray
+        The waypoints of the track.
+    str
+        The comment to be added to the saved results.
+    dict
+        The raw data of the track.
+
+    """
+    # get the track path
+    track_path = os.path.join(
+        current_dir,
+        "gym_drones/assets/Tracks",
+        track_name,
+    )
+
+    # set evaluation waypoints
+    with open(track_path, "r", encoding="utf-8") as file:
+        data = yaml.safe_load(file)
+
+    # track settings
+    comment = data["comment"]
+    track_num_drones = data.get("num_drones", 1)
+    same_track = data.get("same_track", True)
+    repeat_lap = data.get("repeat_lap", 1)
+    # track waypoints
+    start_points = np.array(data["start_points"]).reshape((track_num_drones, -1, 3))
+    end_points = np.array(data["end_points"]).reshape((track_num_drones, -1, 3))
+    if same_track:
+        waypoints = np.repeat(np.array(data["waypoints"]), track_num_drones, axis=0).reshape((track_num_drones, -1, 3))
+    else:
+        waypoints = np.array(data["waypoints"]).reshape((track_num_drones, -1, 3))
+
+    # check if the track is valid
+    if track_num_drones != env.NUM_DRONES:
+        ValueError("num_drones in track file is different from the setting")
+    if ~same_track and repeat_lap > 1:
+        ValueError("same_track is required for repeat_lap > 1")
+
+    # generate the waypoints
+    if repeat_lap == 1:
+        main_segments = waypoints
+    elif repeat_lap > 1:
+        main_segments = np.tile(waypoints, (1, repeat_lap, 1))
+    WPs = np.concatenate([start_points, main_segments, end_points], axis=1)
+
+    # output the track information
+    _output_track_info(
+        track_name=comment,
+        track_num_drones=track_num_drones,
+        same_track=same_track,
+        repeat_lap=repeat_lap,
+        WPs=WPs,
+        start_points=start_points,
+        end_points=end_points,
+        verbose=verbose,
+    )
+    return WPs.reshape(-1, 3) if track_num_drones == 1 else WPs, comment, data
+
+
+def _add_track_noise(
+    WPs: np.ndarray,
+    track_num_drones: int,
+    noise_sigma: float = 0.2,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """add noise to the track waypoints.
+
+    Parameters
+    ----------
+    WPs : np.ndarray
+        The waypoints of the track.
+    track_num_drones : int
+        The number of drones in the track.
+    noise_sigma : float, optional
+        The standard deviation of the noise, by default 0.2
+
+    Returns
+    -------
+    np.ndarray
+        The waypoints of the track with noise.
+    np.ndarray
+        The noise matrix added to the waypoints.
+
+    """
+    WPs = WPs.reshape(track_num_drones, -1, 3)
+    waypoints = WPs[0, 1:-1, :]  # remove start and end points
+    # create noise
+    noise = np.random.normal(0, noise_sigma, waypoints.shape)
+    noise_matrix = np.tile(noise, (track_num_drones, 1, 1))
+    # add noise to the waypoints
+    WPs[:, 1:-1, :] += noise_matrix
+    return WPs.reshape(-1, 3) if track_num_drones == 1 else WPs, noise_matrix
+
+
+def _eval_sim_loop(
+    predict_fn: Callable[[np.ndarray], Union[np.ndarray, tuple]],
+    env: gym.Env,
+    config_dict: dict,
+    current_dir: Union[str, os.PathLike],
+    output_folder: Union[str, os.PathLike],
+    track_name: Optional[str] = None,
+    track_sigma: float = 0.2,
+) -> Tuple[Logger, EvalBaseCallback, str, dict, np.ndarray]:
+    """Evaluate the model in a loop.
+
+    Parameters
+    ----------
+    predict_fn : Callable[[np.ndarray], Union[np.ndarray, tuple]]
+        The prediction function for the model.
     env : gym.Env
         The environment to be used for evaluation.
     config_dict : dict
         The configuration dictionary containing the evaluation parameters.
     current_dir : str or os.PathLike
         The current directory where the results will be saved.
-    eval_loop : int, optional
-        The number of evaluation loops, by default 3
-    save_results : bool, optional
-        Whether to save the results or not, by default True
-    comment : str, optional
-        A comment to be added to the saved results, by default "results"
+    output_folder : str or os.PathLike
+        The path where the evaluation results will be saved.
+    callback : Optional[EvalBaseCallback], optional
+        The callback to be used for evaluation, by default None
+    track_name : Optional[str], optional
+        The name of the track to be used for evaluation, by default None
+        If None, the environment will be reset with random waypoints.
 
     Returns
     -------
     Logger
         The logger object containing the evaluation results.
+    callback : EvalBaseCallback
+        The callback object used for evaluation.
+    str
+        The comment to be added to the saved results.
+    dict
+        The raw data of the track.
+    np.ndarray
+        The noise matrix added to the waypoints.
 
     """
-    # unwrap the environment
-    if hasattr(env, "unwrapped"):
-        env = env.unwrapped
+    # initialize the evaluation
+    eval_loop = config_dict["logging"].get("eval_loop", 3)
+    comment = None
+    if track_name is not None:
+        waypoints_track, comment, track_raw_data = _read_track(
+            current_dir=current_dir, env=env, track_name=track_name, verbose=config_dict["rl_hyperparams"]["verbose"]
+        )
+        run_track = True
+    else:
+        run_track = False
 
-    # get the save path
-    output_folder = get_save_path(config_dict, current_dir)
+    # create the callbacks
+    rew_callback = EvalRewardCallback(verbose=config_dict["rl_hyperparams"]["verbose"])
+    callback = [rew_callback]
+    if track_name is not None:
+        time_callback = EvalTimeCallback(verbose=config_dict["rl_hyperparams"]["verbose"], data=track_raw_data)
+        callback.append(time_callback)
+    callback = _init_callback(env, callback)
 
-    # Check the model type
-    predict_fn = get_predict_fn(model, config_dict)
-
+    # start the evaluation loop
+    callback.on_eval_start(locals(), globals())
     for j in range(eval_loop):
         # create the logger and reset the environment
         logger = Logger(
@@ -136,19 +459,30 @@ def eval_model(
             num_drones=env.NUM_DRONES,
             output_folder=output_folder,
         )
-        obs, info = env.reset(options={})
-        total_reward = 0
+        if run_track:
+            waypoints, noise_matrix = _add_track_noise(
+                WPs=waypoints_track,
+                track_num_drones=env.NUM_DRONES,
+                noise_sigma=track_sigma,
+            )
+            obs, infos = env._setWaypoints_reset(waypoints=waypoints.copy())
+        else:
+            obs, infos = env.reset(options={})
+            spawn_point = env.pos.copy()
+        callback.on_episode_start()
 
         # Sim loop
-        for i in range(env.EPISODE_LEN_SEC * env.CTRL_FREQ + 1):
+        step_counter = 0
+        while True:
             # predict
             outputs = predict_fn(obs)
             action = outputs[0] if isinstance(outputs, tuple) else outputs
 
             # step
-            obs, reward, terminated, truncated, info = env.step(action)
-            target = info["target"]
-            total_reward += reward
+            obs, reward, terminated, truncated, infos = env.step(action)
+            target = infos["target"]
+            callback.update_child_locals(locals())
+            callback.on_step()
 
             # record state
             for nth_drone in range(env.NUM_DRONES):
@@ -168,34 +502,159 @@ def eval_model(
 
                 logger.log(
                     drone=nth_drone,
-                    timestamp=i / env.CTRL_FREQ,
+                    timestamp=step_counter / env.CTRL_FREQ,
                     state=log_state,
                     control=log_control,
                 )
 
-            # reset
-            if terminated:
-                if config_dict["rl_hyperparams"]["verbose"] > 0:
-                    print(f"    [Episode {j + 1}] Terminated after {i} timesteps")
-                    print(f"        Total reward: {total_reward}")
+            # update the counter
+            step_counter += 1
+
+            # reset for track or random waypoints
+            if run_track:
+                if np.all(np.logical_or(env.finished, env.crashed)):
+                    episode_status = "Finish the track"
+                    break
+            else:
+                if terminated:
+                    episode_status = "Terminated"
+                    break
+
+            # check if the episode is truncated
+            if truncated:
+                episode_status = "Truncated"
                 break
-                # obs, info = env.reset(options={})
-            elif truncated:
-                if config_dict["rl_hyperparams"]["verbose"] > 0:
-                    print(f"    [Episode {j + 1}] Truncated after {i} timesteps")
-                    print(f"        Total reward: {total_reward}")
+
+            # check if the episode is out of time
+            if step_counter >= (env.EPISODE_LEN_SEC * env.CTRL_FREQ) * 6:
+                episode_status = "Out of time"
                 break
-                # obs, info = env.reset(options={})
+
+        # end of the episode
+        if config_dict["rl_hyperparams"]["verbose"] > 0:
+            print("    " + "=" * 42)
+            print(f"    [Episode {j + 1}] {episode_status}")
+            print(f"    Total timesteps:       {step_counter} ({step_counter / env.CTRL_FREQ}s)")
+        callback.on_episode_end()
+
+    if config_dict["rl_hyperparams"]["verbose"] > 0:
+        print("\n" + "=" * 50)
+        print(f"{'EVALUATION COMPLETE':^50}")
+        print(f"{'Episodes Completed: ' + str(eval_loop):^50}")
+        print("=" * 50)
+
+    callback.on_eval_end()
+    if not run_track:
+        max_num_waypoint = np.max(env.num_waypoints)
+        pass_wps = env.waypoints.reshape((env.NUM_DRONES, -1, 3))[:, 0:max_num_waypoint]
+        track_raw_data = {
+            "comment": "Random_waypoints",
+            "num_drones": env.NUM_DRONES,
+            "same_track": False,
+            "repeat_lap": 1,
+            "start_points": spawn_point.tolist(),
+            "end_points": pass_wps[:, -1].tolist(),
+            "waypoints": pass_wps[:, 0:-1].tolist(),
+        }
+        noise_matrix = np.zeros((env.NUM_DRONES, pass_wps.shape[1] - 1, 3))
+    return logger, callback, comment, track_raw_data, noise_matrix
+
+
+def eval_model(
+    model: Union[PPO, th.nn.Module],
+    env: gym.Env,
+    config_dict: dict,
+    current_dir: Union[str, os.PathLike],
+    save_results: bool = True,
+    save_timestamps: bool = False,
+    comment: Optional[str] = None,
+    track_name: Optional[str] = None,
+    track_sigma: float = 0.2,
+) -> Tuple[Logger, Optional[dict], np.ndarray, os.PathLike, str]:
+    """Evaluate the model.
+
+    Parameters
+    ----------
+    model : PPO
+        The PPO model to be evaluated.
+    env : gym.Env
+        The environment to be used for evaluation.
+    config_dict : dict
+        The configuration dictionary containing the evaluation parameters.
+    current_dir : str or os.PathLike
+        The current directory where the results will be saved.
+    save_results : bool, optional
+        Whether to save the results or not, by default True
+    comment : str, optional
+        A comment to be added to the saved results, by default "results"
+
+    Returns
+    -------
+    Logger
+        The logger object containing the evaluation results.
+    Optional[dict]
+        The raw data of the track.
+    np.ndarray
+        The noise matrix added to the waypoints.
+    os.PathLike
+        The path where the evaluation results will be saved.
+    str
+        The comment to be added to the saved results.
+
+    """
+    # unwrap the environment
+    if hasattr(env, "unwrapped"):
+        env = env.unwrapped
+
+    # get the save path
+    output_folder = _get_save_path(config_dict, current_dir)
+
+    # Check the model type
+    predict_fn = _get_predict_fn(model, config_dict)
+
+    # get the logger
+    logger, callback, results_comment, track_raw_data, noise_matrix = _eval_sim_loop(
+        predict_fn=predict_fn,
+        env=env,
+        config_dict=config_dict,
+        current_dir=current_dir,
+        output_folder=output_folder,
+        track_name=track_name,
+        track_sigma=track_sigma,
+    )
+
+    # save the results
+    if save_results:
+        if config_dict["rl_hyperparams"]["verbose"] > 0:
+            print("-" * 50)
+            print("[SAVING RESULTS]")
+            print(f"Saving results to {output_folder}")
+        if comment is None:
+            comment = "results" if results_comment is None else results_comment
+        # save the flight data
+        save_dir = logger.save_as_csv(comment=comment, save_timestamps=save_timestamps)
+        # save the callback results
+        callback.save_results(save_dir=save_dir, comment=comment)
+        # save the config
+        _save_config(
+            config_dict=config_dict,
+            eval_mode=True,
+            eval_save_dir=save_dir,
+        )
+        # save the environment parameters
+        env.saveYAMLParameters(
+            save_path=os.path.join(save_dir, "configs"), verbose=config_dict["rl_hyperparams"]["verbose"]
+        )
+        # save the track data if available
+        if track_raw_data is not None:
+            save_track_path = os.path.join(save_dir, "configs/Tracks", f"{comment}.yaml")
+            os.makedirs(os.path.dirname(save_track_path), exist_ok=True)
+            if config_dict["rl_hyperparams"]["verbose"] > 0:
+                print(f"Saving track data to {save_track_path}")
+            with open(save_track_path, "w", encoding="utf-8") as file:
+                yaml.dump(track_raw_data, file, default_flow_style=False)
 
     # close the environment
-    if config_dict["rl_hyperparams"]["verbose"] > 0:
-        print("Evaluation finished!")
-        print("-" * 50)
     env.close()
 
-    if save_results:
-        # save the logger
-        if config_dict["rl_hyperparams"]["verbose"] > 0:
-            print(f"Saving results to {output_folder}")
-        logger.save_as_csv(comment=comment)
-    return logger
+    return logger, track_raw_data, noise_matrix, save_dir, comment

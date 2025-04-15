@@ -42,8 +42,7 @@ class Logger(object):
         """
 
         self.OUTPUT_FOLDER = output_folder
-        if not os.path.exists(self.OUTPUT_FOLDER):
-            os.mkdir(self.OUTPUT_FOLDER)
+        os.makedirs(self.OUTPUT_FOLDER, exist_ok=True)
         self.LOGGING_FREQ_HZ = logging_freq_hz
         self.NUM_DRONES = num_drones
         self.PREALLOCATED_ARRAYS = False if duration_sec == 0 else True
@@ -119,7 +118,7 @@ class Logger(object):
 
     ################################################################################
 
-    def save_as_csv(self, comment: str = "", save_timestamps: bool = False):
+    def save_as_csv(self, comment: str = "", save_timestamps: bool = False) -> str:
         """Save the logs---on your Desktop---as comma separated values.
 
         Parameters
@@ -170,6 +169,7 @@ class Logger(object):
 
         # save the dataframe to csv
         df.to_csv(f"{csv_dir}/{comment}_flight_all_data.csv", index=False)
+        return csv_dir
 
     ################################################################################
 

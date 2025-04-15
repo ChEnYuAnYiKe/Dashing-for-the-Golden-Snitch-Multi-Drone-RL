@@ -2,7 +2,7 @@
 """
 
 import argparse, os, yaml
-from typing import Union
+from typing import Union, Optional
 from gym_drones.utils.utils import recursive_dict_update, recursive_enum_mapping, fix_none_values, get_latest_run_id
 
 
@@ -132,6 +132,10 @@ def _read_all_config(
     if eval_overwrite is not None:
         config_dict["logging"]["eval_overwrite"] = eval_overwrite
 
+    eval_loop = getattr(args, "loop", None)
+    if eval_loop is not None:
+        config_dict["logging"]["eval_loop"] = eval_loop
+
     # Update the rl_hyperparams config_dict with command line arguments
     verbose = getattr(args, "verbose", None)
     if verbose is not None:
@@ -147,53 +151,45 @@ def _read_all_config(
     return config_dict
 
 
-def _save_config(config_dict: dict, current_dir: Union[str, os.PathLike], eval_mode: bool = False) -> None:
+def _save_config(
+    config_dict: dict,
+    current_dir: Optional[Union[str, os.PathLike]] = None,
+    eval_mode: bool = False,
+    eval_save_dir: Optional[Union[str, os.PathLike]] = None,
+) -> None:
     """Save the config dictionary to a YAML file.
 
     Parameters
     ----------
     config_dict : dict
         Dictionary containing the configuration parameters.
-    current_dir : Union[str, os.PathLike]
-        Current directory of the script.
+    current_dir : Optional[Union[str, os.PathLike]]
+        Current directory of the script. Must be provided if eval_mode is False.
+        Default is None.
     eval_mode : bool, optional
         If True, save the config for evaluation mode. Default is False.
+    eval_save_dir : Optional[Union[str, os.PathLike]], optional
+        Directory to save the evaluation config. Must be provided if eval_mode is True.
+        Default is None.
 
     """
-    # output the experiment info
-    if config_dict["rl_hyperparams"]["verbose"] > 0:
-        print("-" * 50)
-        print("[EXPERIMENT INFO]")
-        exp_name = config_dict["pyrl"]["exp_name"]
-        print(f"Experiment name: {exp_name}")
-
     # save the config_dict to a YAML file
     if config_dict["logging"]["save_config"]:
         model_name = config_dict["logging"]["save_model_name"]
         model_id = config_dict["logging"]["run_id"]
         if eval_mode:
-            eval_save_dirname = config_dict["logging"].get(
-                "save_eval_path", config_dict["logging"]["save_config_dirname"]
-            )
-            eval_save_path = os.path.join(
-                current_dir,
-                eval_save_dirname,
-                config_dict["pyrl"]["exp_name"],
-                f"{model_name}_{model_id + 1}",
-                "evals",
-            )
-            eval_name = config_dict["pyrl"].get("eval_name", config_dict["pyrl"]["exp_name"])
-            eval_id = get_latest_run_id(eval_save_path, eval_name)
-            if eval_id > 0 and config_dict["logging"]["eval_overwrite"]:
-                eval_id -= 1
-            config_dict["logging"]["eval_id"] = eval_id
+            if eval_save_dir is None:
+                raise ValueError("eval_save_dir must be provided when eval_mode is True.")
             config_save_path = os.path.join(
-                eval_save_path,
-                f"{eval_name}_{eval_id + 1}",
+                eval_save_dir,
                 "configs",
                 "config.yaml",
             )
+            if config_dict["rl_hyperparams"]["verbose"] > 0:
+                print("Evaluation config saved to:", config_save_path)
         else:
+            if current_dir is None:
+                raise ValueError("current_dir must be provided when training.")
             config_save_path = os.path.join(
                 current_dir,
                 config_dict["logging"]["save_config_dirname"],
@@ -202,14 +198,12 @@ def _save_config(config_dict: dict, current_dir: Union[str, os.PathLike], eval_m
                 "configs",
                 "config.yaml",
             )
+            if config_dict["rl_hyperparams"]["verbose"] > 0:
+                print("Train Config saved to:", config_save_path)
+        # Create the directory if it doesn't exist
         os.makedirs(os.path.dirname(config_save_path), exist_ok=True)
         with open(config_save_path, "w") as f:
             yaml.dump(config_dict, f, default_flow_style=False)
-        if config_dict["rl_hyperparams"]["verbose"] > 0:
-            if eval_mode:
-                print("Evaluation config saved to:", config_save_path)
-            else:
-                print("Train Config saved to:", config_save_path)
 
 
 def process_run_id(config_dict: dict, current_dir: Union[str, os.PathLike]) -> None:
@@ -310,8 +304,16 @@ def process_config(
     # process the run_id
     process_run_id(config_dict, current_dir)
 
+    # output the experiment info
+    if config_dict["rl_hyperparams"]["verbose"] > 0:
+        print("-" * 50)
+        print("[EXPERIMENT INFO]")
+        exp_name = config_dict["pyrl"]["exp_name"]
+        print(f"Experiment name: {exp_name}")
+
     # Save the config_dict to a YAML file
-    _save_config(config_dict, current_dir, eval_mode)
+    if not eval_mode:
+        _save_config(config_dict, current_dir)
 
     # process the config_dict
     fix_none_values(config_dict)

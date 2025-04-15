@@ -48,8 +48,14 @@ conda activate marl_drones
 1. For the latest version, clone the repository and install it locally:
 
    ```bash
+   # clone the repository
    git clone https://github.com/KafuuChikai/Dashing-for-the-Golden-Snitch-Multi-Drone-RL.git
    cd Dashing-for-the-Golden-Snitch-Multi-Drone-RL
+   
+   # update the submodule
+   git submodule update --init --recursive
+   
+   # install the package and dependencies
    pip install -e .
    ```
 
@@ -109,10 +115,20 @@ python scripts/train.py -e hover_race -c path/to/checkpoints -s 500000
 
 ### Evaluation (Beta)
 
+<p align="center">
+  <img src="docs/evaluation/Star_5_single_drone1_2d.png" width="47%" alt="Star_5_single_drone1_2d">
+  <img src="docs/evaluation/Star_5_single_drone1_3d.png" width="51%" alt="Star_5_single_drone1_3d">
+</p>
+
+<p align="center">
+  <img src="docs/evaluation/results_drone1_2d.png" width="47%" alt="results_drone1_2d">
+  <img src="docs/evaluation/results_drone1_3d.png" width="51%" alt="results_drone1_3d">
+</p>
+
 To evaluate the demo, run the following:
 
 ```bash
-python scripts/eval.py -e hover_race -m demo_model/Race_single.pt
+python scripts/eval.py -e hover_race -m demo_model/Race_single.pt -v 2 --track single_drone/Star_5_single.yaml --track_sigma 0
 ```
 
 The script supports the following command-line arguments:
@@ -131,6 +147,12 @@ The script supports the following command-line arguments:
 | `--no_ow`             | `-k`  | `bool` | No       | Do not overwrite the results.                              |
 | `--seed`              | None  | `int`  | No       | Specify the random seed.                                   |
 | `--comment`           | None  | `str`  | No       | Specify a comment for the results (default: `results`).    |
+| `--track`             | None  | `str`  | No       | Specify the track name.                                    |
+| `--track_sigma`       | None  | `float`| No       | Specify the track noise.                                   |
+| `--save_timestamps`   | None  | `bool` | No       | Save files with timestamps (flag argument).                |
+| `--radius`            | None  | `float`| No       | Specify the radius for waypoints (default: `1.0`).         |
+| `--margin`            | None  | `float`| No       | Specify the margin for waypoints (default: `0.0`).         |
+| `--headless`          | None  | `bool` | No       | Use headless mode for 3D visualization (flag argument).    |
 
 **Examples**
 

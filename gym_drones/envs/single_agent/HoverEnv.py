@@ -150,7 +150,9 @@ class HoverEnv(SingleDroneAgentBase):
 
         state = self._getDroneStateVector(0)
         target = self._getDroneTarget(0)
-        return abs(target[2] - state[2]) >= MAX_Z
+        truncated = abs(target[2] - state[2]) >= MAX_Z
+        self.crashed = truncated
+        return truncated
 
     ################################################################################
 
@@ -264,7 +266,15 @@ class HoverEnv(SingleDroneAgentBase):
             if np.linalg.norm(target - state[0:3]) <= self.WAYPOINT_R:
                 self.num_waypoints[0] = self.num_waypoints[0] + 1
                 self.TARGET[0] = self.next_TARGET[0]
-                self.next_TARGET[0] = self.waypoints[(self.num_waypoints[0] + 1) % len(self.waypoints)]
+                if not self.run_track:
+                    self.next_TARGET[0] = self.waypoints[(self.num_waypoints[0] + 1) % len(self.waypoints)]
+                else:
+                    if self.num_waypoints[0] + 1 >= len(self.waypoints):
+                        self.next_TARGET[0] = self.waypoints[-1]
+                        if self.num_waypoints[0] >= len(self.waypoints):
+                            self.finished = True
+                    else:
+                        self.next_TARGET[0] = self.waypoints[self.num_waypoints[0] + 1]
 
     ################################################################################
 
@@ -340,6 +350,7 @@ class HoverEnv(SingleDroneAgentBase):
         """
         super().reset(seed=seed, options=options)
 
+        self.run_track = True
         self.waypoints = waypoints
         if waypoints_radius is not None:
             self.WAYPOINT_R = waypoints_radius

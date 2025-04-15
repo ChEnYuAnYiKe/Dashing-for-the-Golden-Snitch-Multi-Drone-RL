@@ -137,37 +137,17 @@ def build_env(
             env.unwrapped.getDroneParameters()
 
     # save the environment parameters
-    if config_dict["logging"]["save_config"]:
+    if config_dict["logging"]["save_config"] and not eval_mode:
         # get the save path
         model_name = config_dict["logging"]["save_model_name"]
         model_id = config_dict["logging"]["run_id"]
-        if eval_mode:
-            eval_save_dirname = config_dict["logging"].get(
-                "save_eval_path", config_dict["logging"]["save_config_dirname"]
-            )
-            eval_save_path = os.path.join(
-                current_dir,
-                eval_save_dirname,
-                config_dict["pyrl"]["exp_name"],
-                f"{model_name}_{model_id + 1}",
-                "evals",
-            )
-            eval_name = config_dict["pyrl"].get("eval_name", config_dict["pyrl"]["exp_name"])
-            eval_id = config_dict["logging"]["eval_id"]
-            config_save_path = os.path.join(
-                eval_save_path,
-                f"{eval_name}_{eval_id + 1}",
-                "configs",
-            )
-        else:
-            config_save_path = os.path.join(
-                current_dir,
-                config_dict["logging"]["save_config_dirname"],
-                config_dict["pyrl"]["exp_name"],
-                f"{model_name}_{model_id + 1}",
-                "configs",
-            )
-
+        config_save_path = os.path.join(
+            current_dir,
+            config_dict["logging"]["save_config_dirname"],
+            config_dict["pyrl"]["exp_name"],
+            f"{model_name}_{model_id + 1}",
+            "configs",
+        )
         # save the config file
         if config_dict["pyrl"]["runner"] == "parallel":
             env.get_attr(attr_name="unwrapped", indices=0)[0].saveYAMLParameters(
@@ -180,7 +160,7 @@ def build_env(
     return env
 
 
-def find_checkpoint(config_dict: dict, current_dir: Union[str, os.PathLike]) -> Union[str, os.PathLike]:
+def _find_checkpoint(config_dict: dict, current_dir: Union[str, os.PathLike]) -> Union[str, os.PathLike]:
     """Find the checkpoint file based on the configuration dictionary.
 
     Parameters
@@ -300,7 +280,7 @@ def load_model(
         model = PPO.load(path=config_dict["logging"]["load_model_path"], env=env, device=device)
     elif config_dict["logging"]["load_ckpt_path"] is not None:
         # load the model from the checkpoint path
-        ckpt_path = find_checkpoint(config_dict, current_dir)
+        ckpt_path = _find_checkpoint(config_dict, current_dir)
         if config_dict["rl_hyperparams"]["verbose"] > 0:
             print("Loading checkpoint from:", ckpt_path)
         model = PPO.load(path=ckpt_path, env=env, device=device)
