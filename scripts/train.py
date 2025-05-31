@@ -8,9 +8,33 @@ from gym_drones.utils.rl_manager.runner import pre_runner, build_env, load_model
 #### Set Constants #######################################
 current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-envkey = {"hover_race": "hover_race"}
-algkey = {"hover_race": "ppo"}
-runkey = {"hover_race": "hover_race"}
+envkey = {
+    "hover_race": "hover_race",
+    "kin_2d": "kin_2d",
+    "kin_3d": "kin_3d",
+    "kin_rel_2d": "kin_rel_2d",
+    "kin_rel_3d": "kin_rel_3d",
+    "pos_rel": "pos_rel",
+    "rot_rel": "rot_rel",
+}
+algkey = {
+    "hover_race": "ppo",
+    "kin_2d": "ppo",
+    "kin_3d": "ppo",
+    "kin_rel_2d": "ppo",
+    "kin_rel_3d": "ppo",
+    "pos_rel": "ppo",
+    "rot_rel": "ppo",
+}
+runkey = {
+    "hover_race": "hover_race",
+    "kin_2d": "kin_2d",
+    "kin_3d": "kin_3d",
+    "kin_rel_2d": "kin_rel_2d",
+    "kin_rel_3d": "kin_rel_3d",
+    "pos_rel": "pos_rel",
+    "rot_rel": "rot_rel",
+}
 
 enum_mapping = {
     "drone_model": DroneModel,

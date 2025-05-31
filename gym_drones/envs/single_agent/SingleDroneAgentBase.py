@@ -24,7 +24,7 @@ class SingleDroneAgentBase(DroneBase):
         initial_rpys: Optional[np.ndarray] = None,
         sim_freq: int = 100,
         ctrl_freq: int = 100,
-        obs: ObservationType = ObservationType.KIN,
+        obs: ObservationType = ObservationType.KIN_REL,
         act: ActionType = ActionType.RATE,
         dim: SimulationDim = SimulationDim.DIM_3,
         episode_len_sec: int = 15,
@@ -125,9 +125,7 @@ class SingleDroneAgentBase(DroneBase):
         self.clipped_action = np.reshape(self._preprocessAction(action), (self.NUM_DRONES, 4))
         #### Repeat for as many as the physics steps #####
         for _ in range(self.SIM_STEPS_PER_CTRL):
-            #### Step the simulation using the desired physics update ##
-            for nth_drone in range(self.NUM_DRONES):
-                self._dynamics(self.clipped_action[nth_drone, :], nth_drone)
+            self._dynamics_vectorized(self.clipped_action)
         #### Prepare the return values #############################
         terminated = self._computeTerminated()
         truncated = self._computeTruncated()

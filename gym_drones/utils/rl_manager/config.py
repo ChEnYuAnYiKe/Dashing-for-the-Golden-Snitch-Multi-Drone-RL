@@ -319,3 +319,44 @@ def process_config(
     fix_none_values(config_dict)
     config_dict = recursive_enum_mapping(config_dict, enum_mapping)
     return config_dict
+
+
+def process_vis_config(
+    args: argparse.Namespace,
+    current_dir: Union[str, os.PathLike],
+    file_name: str,
+) -> dict:
+    """load the config file and process it.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command line arguments.
+    current_dir : Union[str, os.PathLike]
+        Current directory of the script.
+    enum_mapping : dict
+        Dictionary containing enum mappings.
+
+    Returns
+    -------
+    config_dict : dict
+        Dictionary containing the configuration parameters.
+
+    """
+    with open(os.path.join(current_dir, "config", "vis", f"{file_name}.yaml"), "r") as f:
+        try:
+            config_dict = yaml.safe_load(f)
+        except yaml.YAMLError as exc:
+            assert False, "{} error: {}".format(file_name, exc)
+
+    radius = getattr(args, "radius", None)
+    if radius is not None:
+        config_dict["shape_kwargs"]["radius"] = radius
+
+    margin = getattr(args, "margin", None)
+    if margin is not None:
+        config_dict["shape_kwargs"]["margin"] = margin
+
+    config_dict["track_kwargs"] = {**config_dict["shape_kwargs"], **config_dict["gate_kwargs"]}
+    fix_none_values(config_dict)
+    return config_dict

@@ -25,7 +25,7 @@ class HoverEnv(SingleDroneAgentBase):
         initial_rpys: Optional[np.ndarray] = None,
         sim_freq: int = 100,
         ctrl_freq: int = 100,
-        obs: ObservationType = ObservationType.KIN,
+        obs: ObservationType = ObservationType.KIN_REL,
         act: ActionType = ActionType.RATE,
         dim: SimulationDim = SimulationDim.DIM_3,
         episode_len_sec: int = 15,
@@ -260,21 +260,18 @@ class HoverEnv(SingleDroneAgentBase):
         """Change the random targets"""
         state = self._getDroneStateVector(0)
         target = self._getDroneTarget(0)
-        if self.OBS_TYPE == ObservationType.KIN:  # stay in the same position
-            pass
-        else:
-            if np.linalg.norm(target - state[0:3]) <= self.WAYPOINT_R:
-                self.num_waypoints[0] = self.num_waypoints[0] + 1
-                self.TARGET[0] = self.next_TARGET[0]
-                if not self.run_track:
-                    self.next_TARGET[0] = self.waypoints[(self.num_waypoints[0] + 1) % len(self.waypoints)]
+        if np.linalg.norm(target - state[0:3]) <= self.WAYPOINT_R:
+            self.num_waypoints[0] = self.num_waypoints[0] + 1
+            self.TARGET[0] = self.next_TARGET[0]
+            if not self.run_track:
+                self.next_TARGET[0] = self.waypoints[(self.num_waypoints[0] + 1) % len(self.waypoints)]
+            else:
+                if self.num_waypoints[0] + 1 >= len(self.waypoints):
+                    self.next_TARGET[0] = self.waypoints[-1]
+                    if self.num_waypoints[0] >= len(self.waypoints):
+                        self.finished = True
                 else:
-                    if self.num_waypoints[0] + 1 >= len(self.waypoints):
-                        self.next_TARGET[0] = self.waypoints[-1]
-                        if self.num_waypoints[0] >= len(self.waypoints):
-                            self.finished = True
-                    else:
-                        self.next_TARGET[0] = self.waypoints[self.num_waypoints[0] + 1]
+                    self.next_TARGET[0] = self.waypoints[self.num_waypoints[0] + 1]
 
     ################################################################################
 

@@ -2,19 +2,43 @@ import os, argparse
 import torch as th
 
 from gym_drones.utils.enums import ObservationType, SimulationDim, ActionType, DroneModel
-from gym_drones.utils.rl_manager.config import process_config
+from gym_drones.utils.rl_manager.config import process_config, process_vis_config
 from gym_drones.utils.rl_manager.runner import pre_runner, build_env, load_model
 from gym_drones.utils.rl_manager.eval_utils import eval_model
-from gym_drones.utils.vis_utils import create_raceplotter
+from gym_drones.utils.vis_utils import create_raceplotter, load_plotter_track
 
 import matplotlib.pyplot as plt
 
 #### Set Constants #######################################
 current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-envkey = {"hover_race": "hover_race"}
-algkey = {"hover_race": "ppo"}
-runkey = {"hover_race": "hover_race"}
+envkey = {
+    "hover_race": "hover_race",
+    "kin_2d": "kin_2d",
+    "kin_3d": "kin_3d",
+    "kin_rel_2d": "kin_rel_2d",
+    "kin_rel_3d": "kin_rel_3d",
+    "pos_rel": "pos_rel",
+    "rot_rel": "rot_rel",
+}
+algkey = {
+    "hover_race": "ppo",
+    "kin_2d": "ppo",
+    "kin_3d": "ppo",
+    "kin_rel_2d": "ppo",
+    "kin_rel_3d": "ppo",
+    "pos_rel": "ppo",
+    "rot_rel": "ppo",
+}
+runkey = {
+    "hover_race": "hover_race",
+    "kin_2d": "kin_2d",
+    "kin_3d": "kin_3d",
+    "kin_rel_2d": "kin_rel_2d",
+    "kin_rel_3d": "kin_rel_3d",
+    "pos_rel": "pos_rel",
+    "rot_rel": "rot_rel",
+}
 
 enum_mapping = {
     "drone_model": DroneModel,
@@ -47,9 +71,9 @@ def run():
     parser.add_argument("--track", type=str, required=False, help="Specify the track name.")
     parser.add_argument("--track_sigma", type=float, default=0.1, help="Specify the track sigma.")
     parser.add_argument("--save_timestamps", action="store_true", help="Save timestamps.")
-    parser.add_argument("--radius", type=float, default=1.0, help="Specify the radius for the waypoints.")
-    parser.add_argument("--margin", type=float, default=0.0, help="Specify the margin for the waypoints.")
-    parser.add_argument("--headless", action="store_true", help="Use headless mode for 3D visualization.")
+    parser.add_argument("--radius", type=float, required=False, help="Specify the radius for the waypoints.")
+    parser.add_argument("--margin", type=float, required=False, help="Specify the margin for the waypoints.")
+    parser.add_argument("--vis_config", type=str, default="waypoints", help="Specify the visualization config file.")
 
     # Use the arguments
     args = parser.parse_args()
@@ -96,39 +120,52 @@ def run():
         track_sigma=args.track_sigma,
     )
 
-    # create the raceplotter list
-    shape_kwargs = {
-        "radius": args.radius,
-        "margin": args.margin,
-    }
-    raceplotter_list = create_raceplotter(
-        logger=logger, track_data=track_raw_data, shape_kwargs=shape_kwargs, noise_matrix=noise_matrix
+    # create the raceplotter
+    vis_config_dict = process_vis_config(args=args, current_dir=current_dir, file_name=args.vis_config)
+    raceplotter = create_raceplotter(
+        logger=logger,
+        track_data=track_raw_data,
+        shape_kwargs=vis_config_dict["shape_kwargs"],
+        noise_matrix=noise_matrix,
     )
 
     # visualize the results
-    for i, raceplotter in enumerate(raceplotter_list):
-        raceplotter.plot(
-            cmap=plt.cm.cool_r,
-            save_fig=True,
-            save_path=save_dir,
-            fig_name=f"{comment}_drone{i + 1}_2d",
-            fig_title=f"{comment} (drone {i + 1})",
-            **shape_kwargs,
+    cmap = plt.cm.cool_r
+    vis_config_dict["track_file"] = vis_config_dict.get("track_file", None)
+    if vis_config_dict["track_file"] is not None:
+        raceplotter = load_plotter_track(
+            current_dir=current_dir, track_file=vis_config_dict["track_file"], plotter=raceplotter
         )
-        raceplotter.plot3d(
-            cmap=plt.cm.cool_r,
-            save_fig=True,
-            save_path=save_dir,
-            fig_name=f"{comment}_drone{i + 1}_3d",
-            fig_title=f"{comment} (drone {i + 1})",
-            gate_color="gray",
-            gate_alpha=0.06,
-            **shape_kwargs,
-        )
-        if args.headless:
-            raceplotter.save_3d_fig(
-                save_path=save_dir, fig_name=f"{comment}_drone{i + 1}_cover", hide_background=True, hide_ground=True
-            )
+    ############# 2D Visualization ##########################
+    raceplotter.plot(
+        cmap=cmap,
+        save_fig=True,
+        save_path=save_dir,
+        fig_name=comment,
+        fig_title=comment,
+        **vis_config_dict["2d_kwargs"],
+        **vis_config_dict["shape_kwargs"],
+    )
+    ############# 3D Visualization ##########################
+    raceplotter.plot3d(
+        cmap=cmap,
+        save_fig=True,
+        save_path=save_dir,
+        fig_name=comment,
+        fig_title=comment,
+        **vis_config_dict["3d_kwargs"],
+        **vis_config_dict["shape_kwargs"],
+        **vis_config_dict["gate_kwargs"],
+    )
+    ############# Animation Visualization ###################
+    ani_list = raceplotter.create_animation(
+        cmap=cmap,
+        drone_kwargs=vis_config_dict["drone_kargs"],
+        track_kargs=vis_config_dict["track_kwargs"],
+        # save_path=save_dir,
+        video_name=comment,
+        **vis_config_dict["ani_kwargs"],
+    )
     logger.plot()
 
 

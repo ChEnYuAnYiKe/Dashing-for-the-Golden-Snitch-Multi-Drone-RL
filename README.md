@@ -22,6 +22,7 @@
 ### News
 
 - **Coming Soon**: 📢 Full multi-agent version will be released shortly. Stay tuned!
+- **May 31, 2025**: 🚀 Full Single-agent version released!
 - **April 7, 2025**: 🚀 Single-agent version released! Now available for training and testing (beta) in single-drone scenarios.
 - **March 5, 2025**: 📄 The camera-ready version of our paper has been updated on [arXiv](https://arxiv.org/abs/2409.16720).
 - **January 27, 2025**: 🎉 Our paper has been accepted to **ICRA 2025**!
@@ -74,6 +75,21 @@ To start training, run the following command:
 python scripts/train.py -e hover_race -B 16
 ```
 
+Below are the available drone reinforcement learning environments, including practical scenarios and several examples:
+
+| Env Code     | Name                | Description                                                  |
+| ------------ | ------------------- | ------------------------------------------------------------ |
+| `hover_race` | Race (single drone) | Real drone control scenario, training drones to navigate through tracks |
+
+| Tutorial Code | Name                                    | Description                                                  |
+| ------------- | --------------------------------------- | ------------------------------------------------------------ |
+| `kin_2d`      | 2D Kinematics ⚠️ **Non-working example** | Simplified 2D movement control, focusing on Y and Z axes only |
+| `kin_3d`      | 3D Kinematics ⚠️ **Non-working example** | Complete 3D space movement control                           |
+| `kin_rel_2d`  | 2D Relative Kinematics                  | 2D motion control based on relative positions                |
+| `kin_rel_3d`  | 3D Relative Kinematics                  | 3D motion control based on relative positions                |
+| `pos_rel`     | Position Relative Control               | observe previous step actions                                |
+| `rot_rel`     | Rotation Relative Control               | Using rotation matrices for continue orientation observation |
+
 The script supports the following command-line arguments:
 
 | Arguments             | Short | Type   | Required | Description                                                |
@@ -115,44 +131,42 @@ python scripts/train.py -e hover_race -c path/to/checkpoints -s 500000
 
 ### Evaluation (Beta)
 
-<p align="center">
-  <img src="docs/evaluation/Star_5_single_drone1_2d.png" width="47%" alt="Star_5_single_drone1_2d">
-  <img src="docs/evaluation/Star_5_single_drone1_3d.png" width="51%" alt="Star_5_single_drone1_3d">
-</p>
-
-<p align="center">
-  <img src="docs/evaluation/results_drone1_2d.png" width="47%" alt="results_drone1_2d">
-  <img src="docs/evaluation/results_drone1_3d.png" width="51%" alt="results_drone1_3d">
-</p>
+|                                                              |                                                              |
+| :----------------------------------------------------------- | :----------------------------------------------------------- |
+| <video src="https://github.com/user-attachments/assets/cc6415c5-8db9-4b05-b87e-c753c4c8fb65" /> | <video src="https://github.com/user-attachments/assets/328413a2-fbcf-425c-a349-8c2891fac08b" /> |
 
 To evaluate the demo, run the following:
 
 ```bash
-python scripts/eval.py -e hover_race -m demo_model/Race_single.pt -v 2 --track single_drone/Star_5_single.yaml --track_sigma 0
+python scripts/eval.py -e hover_race -m demo_model/Race_single.pt -v 2 --track single_drone/UZH_single.yaml --track_sigma 0 --vis_config UZH_gate
+```
+
+```bash
+python scripts/eval.py -e hover_race -m demo_model/Race_single.pt -v 2 --track single_drone/Star_5_single.yaml --track_sigma 0 --vis_config star_tracks
 ```
 
 The script supports the following command-line arguments:
 
-| Arguments             | Short | Type   | Required | Description                                                |
-|-----------------------|-------|--------|----------|------------------------------------------------------------|
-| `--env`               | `-e`  | `str`  | Yes      | Specify the environment (e.g., `hover_race`).              |
-| `--exp_name`          | `-n`  | `str`  | No       | Specify the experiment name.                               |
-| `--eval_name`         | `-r`  | `str`  | No       | Specify the evaluation name.                               |
-| `--load_model`        | `-m`  | `str`  | No       | Specify the path to load a pre-trained model.              |
-| `--load_ckpt`         | `-c`  | `str`  | No       | Specify the path to load a checkpoint.                     |
-| `--load_step`         | `-s`  | `int`  | No       | Specify the step to load from a checkpoint.                |
-| `--save_eval`         | `-S`  | `str`  | No       | Specify the path to save evaluation results.               |
-| `--config`            | `-f`  | `str`  | No       | Specify the path to the configuration file.                |
-| `--verbose`           | `-v`  | `int`  | No       | Specify the verbosity level (e.g., `0`, `1` or `2`).       |
-| `--no_ow`             | `-k`  | `bool` | No       | Do not overwrite the results.                              |
-| `--seed`              | None  | `int`  | No       | Specify the random seed.                                   |
-| `--comment`           | None  | `str`  | No       | Specify a comment for the results (default: `results`).    |
-| `--track`             | None  | `str`  | No       | Specify the track name.                                    |
-| `--track_sigma`       | None  | `float`| No       | Specify the track noise.                                   |
-| `--save_timestamps`   | None  | `bool` | No       | Save files with timestamps (flag argument).                |
-| `--radius`            | None  | `float`| No       | Specify the radius for waypoints (default: `1.0`).         |
-| `--margin`            | None  | `float`| No       | Specify the margin for waypoints (default: `0.0`).         |
-| `--headless`          | None  | `bool` | No       | Use headless mode for 3D visualization (flag argument).    |
+| Arguments           | Short | Type    | Required | Description                                             |
+| ------------------- | ----- | ------- | -------- | ------------------------------------------------------- |
+| `--env`             | `-e`  | `str`   | Yes      | Specify the environment (e.g., `hover_race`).           |
+| `--exp_name`        | `-n`  | `str`   | No       | Specify the experiment name.                            |
+| `--eval_name`       | `-r`  | `str`   | No       | Specify the evaluation name.                            |
+| `--load_model`      | `-m`  | `str`   | No       | Specify the path to load a pre-trained model.           |
+| `--load_ckpt`       | `-c`  | `str`   | No       | Specify the path to load a checkpoint.                  |
+| `--load_step`       | `-s`  | `int`   | No       | Specify the step to load from a checkpoint.             |
+| `--save_eval`       | `-S`  | `str`   | No       | Specify the path to save evaluation results.            |
+| `--config`          | `-f`  | `str`   | No       | Specify the path to the configuration file.             |
+| `--verbose`         | `-v`  | `int`   | No       | Specify the verbosity level (e.g., `0`, `1` or `2`).    |
+| `--no_ow`           | `-k`  | `bool`  | No       | Do not overwrite the results.                           |
+| `--seed`            | None  | `int`   | No       | Specify the random seed.                                |
+| `--comment`         | None  | `str`   | No       | Specify a comment for the results (default: `results`). |
+| `--track`           | None  | `str`   | No       | Specify the track name.                                 |
+| `--track_sigma`     | None  | `float` | No       | Specify the track noise.                                |
+| `--save_timestamps` | None  | `bool`  | No       | Save files with timestamps (flag argument).             |
+| `--radius`          | None  | `float` | No       | Specify the radius for waypoints (default: `1.0`).      |
+| `--margin`          | None  | `float` | No       | Specify the margin for waypoints (default: `0.0`).      |
+| `--vis_config`      | None  | `str`   | No       | Specify the visualization config file.                  |
 
 **Examples**
 

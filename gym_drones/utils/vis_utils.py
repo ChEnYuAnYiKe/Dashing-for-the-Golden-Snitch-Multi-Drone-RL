@@ -1,10 +1,11 @@
+import os
 import numpy as np
 
 from numpy.core.records import fromarrays
 from typing import List, Optional, Union
 from gym_drones.utils.Logger import Logger
 from race_utils.RaceGenerator.RaceTrack import RaceTrack
-from race_utils.RaceVisualizer.RacePlotter import RacePlotter
+from race_utils.RaceVisualizer.RacePlotter import RacePlotter, BasePlotterList
 from race_utils.RaceGenerator.GenerationTools import create_state, create_gate
 
 
@@ -129,7 +130,7 @@ def _logger_to_traj_data(logger: Logger) -> List[np.ndarray]:
 
 def create_raceplotter(
     logger: Logger, track_data: dict, shape_kwargs: dict, noise_matrix: np.ndarray
-) -> List[RacePlotter]:
+) -> BasePlotterList:
     """
     Create a RacePlotter list.
 
@@ -160,4 +161,33 @@ def create_raceplotter(
     for i in range(logger.NUM_DRONES):
         raceplotter = RacePlotter(traj_file=data_list[i], track_file=racetrack_list[i])
         raceplotter_list.append(raceplotter)
-    return raceplotter_list
+    plotter = BasePlotterList(plotters=raceplotter_list)
+    return plotter
+
+
+def load_plotter_track(
+    current_dir: Union[str, os.PathLike],
+    track_file: Union[str, os.PathLike, RaceTrack],
+    plotter: Optional[RacePlotter] = None,
+    index: Optional[list] = None,
+) -> Union[RacePlotter, BasePlotterList]:
+    """
+    Load the track file.
+
+    Parameters
+    ----------
+    track_file : str
+        The track file to load.
+    index : list, optional
+        The index of the track file to load, by default None
+        If None, load all the track files.
+
+    Returns
+    -------
+    Union[RacePlotter, BasePlotterList]
+        The loaded plotters.
+
+    """
+    track_file = os.path.join(current_dir, "gym_drones/assets/Tracks/RaceUtils", f"{track_file}.yaml")
+    plotter.load_track(track_file=track_file, index=index)
+    return plotter

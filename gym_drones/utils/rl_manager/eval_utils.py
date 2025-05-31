@@ -7,6 +7,7 @@ from typing import Union, Optional, Callable, Tuple
 from stable_baselines3 import PPO
 
 from gym_drones.utils.Logger import Logger
+from gym_drones.utils.enums import SimulationDim
 from gym_drones.utils.rl_manager.EvalCallback import (
     EvalBaseCallback,
     ConvertCallback,
@@ -498,6 +499,8 @@ def _eval_sim_loop(
                     ]
                 )
                 action_to_log = action[nth_drone] if action.ndim > 1 else action
+                if env.DIM == SimulationDim.DIM_2:
+                    action_to_log = np.hstack((action_to_log, np.zeros(2)))
                 log_control = np.hstack([action_to_log, np.zeros(8)])
 
                 logger.log(
@@ -546,6 +549,7 @@ def _eval_sim_loop(
     callback.on_eval_end()
     if not run_track:
         max_num_waypoint = np.max(env.num_waypoints)
+        max_num_waypoint = 1 if max_num_waypoint < 1 else max_num_waypoint
         pass_wps = env.waypoints.reshape((env.NUM_DRONES, -1, 3))[:, 0:max_num_waypoint]
         track_raw_data = {
             "comment": "Random_waypoints",

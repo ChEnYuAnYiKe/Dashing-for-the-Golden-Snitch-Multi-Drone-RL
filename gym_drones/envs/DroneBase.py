@@ -1,7 +1,7 @@
 import importlib.resources as pkg_resources
 import numpy as np
 import gymnasium as gym
-from gym_drones.utils.enums import DroneModel
+from gym_drones.utils.enums import DroneModel, SimulationDim
 import yaml
 from scipy.spatial.transform import Rotation
 from scipy.stats import truncnorm
@@ -379,6 +379,96 @@ class DroneBase(gym.Env):
 
     ################################################################################
 
+    def _integrateQ_vectorized(
+        self,
+        quats: np.ndarray,  # 形状为 (N, 4)
+        omegas: np.ndarray,  # 形状为 (N, 3)
+        dt: float,
+    ) -> np.ndarray:
+        """Returns quaternions after integrating the angular velocities.
+
+        Parameters
+        ----------
+        quats : ndarray[float]
+            (N, 4)-shaped array of floats containing the quaternions.
+        omegas : ndarray[float]
+            (N, 3)-shaped array of floats containing the angular velocities.
+        dt : float
+            The time step.
+
+        Returns
+        -------
+        ndarray[float]
+            (N, 4)-shaped array of floats containing the new quaternions.
+
+        Notes
+        -----
+        for quat [x, y, z, w] format.
+        """
+        # compute the norms of the angular velocities
+        omega_norms = np.linalg.norm(omegas, axis=1)  # shape (N,)
+
+        # handle the case where all angular velocities are zero
+        zero_mask = np.isclose(omega_norms, 0)
+        if np.all(zero_mask):
+            return quats.copy()  # if all are zero, return the original quats
+
+        # get the components of the angular velocities
+        p, q, r = omegas[:, 0], omegas[:, 1], omegas[:, 2]  # each shape (N,)
+
+        # compute the thetas, cosines, and sines
+        thetas = omega_norms * dt / 2  # shape (N,)
+        cos_thetas = np.cos(thetas)  # shape (N,)
+        sin_thetas = np.sin(thetas)  # shape (N,)
+
+        # initialize the result array
+        result_quats = np.zeros_like(quats)
+
+        # handle the case where angular velocities are zero
+        result_quats[zero_mask] = quats[zero_mask]
+
+        # handle the case where angular velocities are non-zero
+        non_zero_mask = ~zero_mask
+        if np.any(non_zero_mask):
+            # abstract the non-zero components
+            nz_p, nz_q, nz_r = p[non_zero_mask], q[non_zero_mask], r[non_zero_mask]
+            nz_quats = quats[non_zero_mask]
+            nz_omega_norms = omega_norms[non_zero_mask]
+            nz_cos_thetas = cos_thetas[non_zero_mask]
+            nz_sin_thetas = sin_thetas[non_zero_mask]
+
+            # create the lambda matrices batch
+            batch_size = np.sum(non_zero_mask)
+            lambdas = np.zeros((batch_size, 4, 4))
+
+            # fill the lambda matrices
+            lambdas[:, 0, 1] = nz_r
+            lambdas[:, 0, 2] = -nz_q
+            lambdas[:, 0, 3] = nz_p
+            lambdas[:, 1, 0] = -nz_r
+            lambdas[:, 1, 2] = nz_p
+            lambdas[:, 1, 3] = nz_q
+            lambdas[:, 2, 0] = nz_q
+            lambdas[:, 2, 1] = -nz_p
+            lambdas[:, 2, 3] = nz_r
+            lambdas[:, 3, 0] = -nz_p
+            lambdas[:, 3, 1] = -nz_q
+            lambdas[:, 3, 2] = -nz_r
+
+            # create the identity matrix batch
+            identity_batch = np.tile(np.eye(4), (batch_size, 1, 1))
+
+            # compute the rotation matrices
+            rotation_matrices = identity_batch * nz_cos_thetas[:, None, None]
+            rotation_matrices += np.einsum("ijk,i->ijk", lambdas, nz_sin_thetas / nz_omega_norms)
+
+            # apply the rotation matrices to the quaternions
+            result_quats[non_zero_mask] = np.einsum("ijk,ik->ij", rotation_matrices, nz_quats)
+
+        return result_quats
+
+    ################################################################################
+
     def _saveLastAction(
         self,
         action: np.ndarray,
@@ -393,7 +483,10 @@ class DroneBase(gym.Env):
             (NUM_DRONES, action_dim)-shaped array containing the current input for each drone.
 
         """
-        self.last_action = np.reshape(action, (self.NUM_DRONES, 4))
+        if self.DIM == SimulationDim.DIM_2:
+            self.last_action = np.hstack((action.reshape(self.NUM_DRONES, 2), np.zeros((self.NUM_DRONES, 2))))
+        elif self.DIM == SimulationDim.DIM_3:
+            self.last_action = np.reshape(action, (self.NUM_DRONES, 4))
 
     ################################################################################
 
@@ -570,6 +663,7 @@ class DroneBase(gym.Env):
         R_B_E = self.rot[nth_drone, :, :]  # rot body to earth
         DRAG_COEFF_L = self.DRAG_COEFF_L
         DRAG_COEFF_H = self.DRAG_COEFF_H
+
         #### domain randomization ##################################
         if self.domain_rand:
             scale_T = truncnorm(-1, 1, loc=1.0, scale=0.1).rvs()
@@ -602,6 +696,100 @@ class DroneBase(gym.Env):
         self.rot[nth_drone, :, :] = Rotation.from_quat(self.quat[nth_drone, :]).as_matrix()
         self.rate[nth_drone, :] += d_rate * self.SIM_TIMESTEP
         self.thrust[nth_drone] += d_T * self.SIM_TIMESTEP
+
+    ################################################################################
+
+    def _dynamics_vectorized(
+        self,
+        inputs: np.ndarray,  # (NUM_DRONES, 4) 形状
+        drone_indices: Optional[np.ndarray] = None,  # (NUM_DRONES,) 形状
+    ) -> None:
+        """Vectorized dynamics implementation.
+        This method computes the dynamics for all drones in a vectorized manner.
+
+        Parameters
+        ----------
+        inputs : ndarray[float]
+            (NUM_DRONES, 4)-shaped array containing the current inputs for all drones.
+        drone_indices : ndarray[float], optional
+            (NUM_DRONES,)-shaped array containing the indices of the drones to be updated.
+            If None, all drones will be updated.
+        """
+        if drone_indices is None:
+            drone_indices = np.arange(self.NUM_DRONES)
+        num_drones = len(drone_indices)
+        if num_drones == 0:
+            Warning("[WARNING] in DroneBase._dynamics_vectorized(), " "no drones to update.")
+            return
+        #### current state #########################################
+        # select the drones to be updated
+        inputs = inputs[drone_indices]
+        vel = self.vel[drone_indices]
+        quat = self.quat[drone_indices]
+        rate = self.rate[drone_indices]
+        T = self.thrust[drone_indices]
+        R_B_E = self.rot[drone_indices]
+        DRAG_COEFF_L = self.DRAG_COEFF_L
+        DRAG_COEFF_H = self.DRAG_COEFF_H
+
+        #### domain randomization ##################################
+        if self.domain_rand:
+            # create a truncnorm distribution for scaling thrust
+            scale_T = truncnorm(-1, 1, loc=1.0, scale=0.1).rvs(size=num_drones)
+            T = T * scale_T
+            # create a uniform distribution for scaling drag coefficients
+            random_factors = np.random.uniform(0.8, 1.2, size=(num_drones, DRAG_COEFF_L.shape))
+            DRAG_COEFF_L = DRAG_COEFF_L * random_factors
+
+        #### state derivative ######################################
+        # position derivative
+        d_position = vel
+
+        # calculate body velocity
+        body_vel = np.einsum("ijk,ik->ij", np.transpose(R_B_E, (0, 2, 1)), vel)
+
+        # calculate nonlinear drag velocity, only in z direction
+        z_drag_velocity = np.zeros((num_drones, 3))
+        z_drag_velocity[:, 2] = body_vel[:, 0] ** 2 + body_vel[:, 1] ** 2
+
+        # prepare gravity vector
+        gravity = np.tile(np.array([0.0, 0.0, -self.G]), (num_drones, 1))
+
+        # prepare thrust vectors
+        thrust_vectors = np.zeros((num_drones, 3))
+        thrust_vectors[:, 2] = T
+
+        # compute linear drag
+        linear_drag = np.multiply(body_vel, DRAG_COEFF_L)
+
+        # compute nonlinear drag
+        nonlinear_drag = DRAG_COEFF_H * z_drag_velocity
+
+        # compute total force in body frame
+        total_force_body = thrust_vectors + linear_drag + nonlinear_drag
+
+        # rotate total body force to earth frame
+        total_force_earth = np.einsum("ijk,ik->ij", R_B_E, total_force_body)
+
+        # velocity derivative (acceleration)
+        d_velocity = gravity + total_force_earth / self.M
+
+        # inputs derivative
+        d_T = (inputs[:, 0] - T) / self.DELAY_T  # thrust delay
+        d_rate = (inputs[:, 1:4] - rate) / self.DELAY_W  # rate delay
+
+        #### update states ######################################
+        # update positions and velocities
+        self.pos[drone_indices] += d_position * self.SIM_TIMESTEP
+        self.vel[drone_indices] += d_velocity * self.SIM_TIMESTEP
+        self.quat[drone_indices] = self._integrateQ_vectorized(quat, rate, self.SIM_TIMESTEP)
+        # update euler angles and rotation matrices
+        rotations = Rotation.from_quat(quat)
+        self.rpy[drone_indices] = rotations.as_euler("xyz", degrees=False)
+        self.rot[drone_indices] = rotations.as_matrix()
+        # update rates and thrusts
+        self.rate[drone_indices] += d_rate * self.SIM_TIMESTEP
+        self.thrust[drone_indices] += d_T * self.SIM_TIMESTEP
 
     ################################################################################
 
