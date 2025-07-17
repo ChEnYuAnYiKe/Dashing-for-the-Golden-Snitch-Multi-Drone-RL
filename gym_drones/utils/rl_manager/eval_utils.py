@@ -17,6 +17,7 @@ from gym_drones.utils.rl_manager.EvalCallback import (
 )
 from gym_drones.utils.utils import get_latest_run_id
 from gym_drones.utils.rl_manager.config import _save_config
+from gym_drones.utils.motion_library import GateMotionPlanner
 
 
 def _get_predict_fn(
@@ -41,12 +42,17 @@ def _get_predict_fn(
     if isinstance(model, PPO):
         if config_dict["rl_hyperparams"]["verbose"] > 0:
             print("Evaluating a Stable-Baselines3 PPO model. Starting evaluation...")
-        predict_fn = lambda obs: model.predict(obs, deterministic=True)
+        predict_fn = lambda obs: model.predict(obs, deterministic=True)[0]
     elif isinstance(model, th.nn.Module):
         if config_dict["rl_hyperparams"]["verbose"] > 0:
             print("Evaluating a PyTorch model. Starting evaluation...")
         device = th.device("cuda" if config_dict["pyrl"]["use_cuda"] else "cpu")
-        predict_fn = lambda obs: model(th.from_numpy(obs).to(device)).detach().cpu().numpy()
+        output_activation_fn = config_dict["agent"].get("output_activation_fn", None)
+        if output_activation_fn is not None:
+            output_activation_fn = output_activation_fn()
+            predict_fn = lambda obs: output_activation_fn(model(th.from_numpy(obs).to(device))).detach().cpu().numpy()
+        else:
+            predict_fn = lambda obs: np.clip(model(th.from_numpy(obs).to(device)).detach().cpu().numpy(), -1, 1)
     else:
         raise TypeError("Unsupported model type. Expected PPO or th.nn.Module.")
     return predict_fn
@@ -324,9 +330,10 @@ def _read_track(
     start_points = np.array(data["start_points"]).reshape((track_num_drones, -1, 3))
     end_points = np.array(data["end_points"]).reshape((track_num_drones, -1, 3))
     if same_track:
-        waypoints = np.repeat(np.array(data["waypoints"]), track_num_drones, axis=0).reshape((track_num_drones, -1, 3))
+        waypoints = np.tile(np.array(data["waypoints"]), (track_num_drones, 1, 1))
     else:
         waypoints = np.array(data["waypoints"]).reshape((track_num_drones, -1, 3))
+    num_waypoints_per_lap = waypoints.shape[1]
 
     # check if the track is valid
     if track_num_drones != env.NUM_DRONES:
@@ -352,7 +359,15 @@ def _read_track(
         end_points=end_points,
         verbose=verbose,
     )
-    return WPs.reshape(-1, 3) if track_num_drones == 1 else WPs, comment, data
+    moving_gate = data.get("moving_gate", None)
+    if moving_gate is not None:
+        gate_planner = GateMotionPlanner(
+            num_waypoints_per_lap=num_waypoints_per_lap, num_laps=repeat_lap, moving_gate_config=moving_gate
+        )
+    else:
+        gate_planner = None
+        # print(gate_planner.motion_plan)
+    return WPs.reshape(-1, 3) if track_num_drones == 1 else WPs, comment, data, gate_planner
 
 
 def _add_track_noise(
@@ -433,13 +448,15 @@ def _eval_sim_loop(
 
     """
     # initialize the evaluation
-    eval_loop = config_dict["logging"].get("eval_loop", 3)
+    eval_loop = config_dict["logging"].get("eval_loop", 1)
     comment = None
     if track_name is not None:
-        waypoints_track, comment, track_raw_data = _read_track(
+        waypoints_track, comment, track_raw_data, gate_planner = _read_track(
             current_dir=current_dir, env=env, track_name=track_name, verbose=config_dict["rl_hyperparams"]["verbose"]
         )
         run_track = True
+        start_len = np.array(track_raw_data["start_points"]).reshape((env.NUM_DRONES, -1, 3)).shape[1]
+        end_len = np.array(track_raw_data["end_points"]).reshape((env.NUM_DRONES, -1, 3)).shape[1]
     else:
         run_track = False
 
@@ -466,21 +483,34 @@ def _eval_sim_loop(
                 track_num_drones=env.NUM_DRONES,
                 noise_sigma=track_sigma,
             )
-            obs, infos = env._setWaypoints_reset(waypoints=waypoints.copy())
+            if hasattr(env, "use_mappo") and env.use_mappo:
+                obs, _, infos = env._setWaypoints_reset(waypoints=waypoints.copy())
+            else:
+                obs, infos = env._setWaypoints_reset(waypoints=waypoints.copy())
         else:
-            obs, infos = env.reset(options={})
+            if hasattr(env, "use_mappo") and env.use_mappo:
+                obs, _, infos = env.reset(options={})
+            else:
+                obs, infos = env.reset(options={})
             spawn_point = env.pos.copy()
         callback.on_episode_start()
 
         # Sim loop
         step_counter = 0
+        if gate_planner is not None:
+            gate_t_list = [0.0]
+            gate_waypoints_list = [env.waypoints.copy()]
+        else:
+            moving_gate_data = None
         while True:
             # predict
-            outputs = predict_fn(obs)
-            action = outputs[0] if isinstance(outputs, tuple) else outputs
+            action = predict_fn(obs)
 
             # step
-            obs, reward, terminated, truncated, infos = env.step(action)
+            if hasattr(env, "use_mappo") and env.use_mappo:
+                obs, _, reward, terminated, truncated, infos = env.step(action)
+            else:
+                obs, reward, terminated, truncated, infos = env.step(action)
             target = infos["target"]
             callback.update_child_locals(locals())
             callback.on_step()
@@ -512,6 +542,16 @@ def _eval_sim_loop(
 
             # update the counter
             step_counter += 1
+
+            # check if the gate planner is used
+            if gate_planner is not None:
+                dynamic_waypoints = waypoints.copy()
+                dynamic_waypoints[:, start_len:-end_len, :] = gate_planner.compute_positions(
+                    t=step_counter / env.CTRL_FREQ, initial_positions=dynamic_waypoints[:, start_len:-end_len, :].copy()
+                )
+                gate_t_list.append(step_counter / env.CTRL_FREQ)
+                gate_waypoints_list.append(dynamic_waypoints.copy())
+                env._setWaypoints(waypoints=dynamic_waypoints.copy())
 
             # reset for track or random waypoints
             if run_track:
@@ -548,9 +588,10 @@ def _eval_sim_loop(
 
     callback.on_eval_end()
     if not run_track:
-        max_num_waypoint = np.max(env.num_waypoints)
-        max_num_waypoint = 1 if max_num_waypoint < 1 else max_num_waypoint
-        pass_wps = env.waypoints.reshape((env.NUM_DRONES, -1, 3))[:, 0:max_num_waypoint]
+        max_num_waypoint = min(np.max(env.num_waypoints) + 2, len(env.waypoints))
+        max_num_waypoint = 2 if max_num_waypoint < 1 else max_num_waypoint
+        output_waypoints = np.tile(env.waypoints, (env.NUM_DRONES, 1, 1))
+        pass_wps = output_waypoints.reshape((env.NUM_DRONES, -1, 3))[:, 0:max_num_waypoint]
         track_raw_data = {
             "comment": "Random_waypoints",
             "num_drones": env.NUM_DRONES,
@@ -561,7 +602,38 @@ def _eval_sim_loop(
             "waypoints": pass_wps[:, 0:-1].tolist(),
         }
         noise_matrix = np.zeros((env.NUM_DRONES, pass_wps.shape[1] - 1, 3))
-    return logger, callback, comment, track_raw_data, noise_matrix
+
+    # update the logger with the final information
+    crashed_step = env.crashed_step.copy() if hasattr(env, "crashed_step") else np.zeros(env.NUM_DRONES, dtype=int)
+    finished_step = env.finished_step.copy() if hasattr(env, "finished_step") else np.zeros(env.NUM_DRONES, dtype=int)
+    update_info = {
+        "crashed_step": crashed_step,
+        "finished_step": finished_step,
+    }
+    logger.update_info(**update_info)
+
+    if gate_planner is not None:
+        # 1. Convert lists to NumPy arrays once.
+        gate_t_arr = np.array(gate_t_list)
+        gate_waypoints_arr = np.array(gate_waypoints_list)
+
+        # 2. Determine the final length and trim the source arrays ONCE.
+        if hasattr(logger, "end_step") and len(logger.end_step) > 0:
+            max_step = np.max(logger.end_step)
+            gate_t_arr = gate_t_arr[:max_step]
+            gate_waypoints_arr = gate_waypoints_arr[:max_step]
+
+        moving_gate_data = [
+            {
+                "t": gate_t_arr,  # Use the already trimmed time array
+                "p_x": gate_waypoints_arr[:, nth_drone, :, 0],
+                "p_y": gate_waypoints_arr[:, nth_drone, :, 1],
+                "p_z": gate_waypoints_arr[:, nth_drone, :, 2],
+            }
+            for nth_drone in range(env.NUM_DRONES)
+        ]
+
+    return logger, callback, comment, track_raw_data, noise_matrix, moving_gate_data
 
 
 def eval_model(
@@ -617,7 +689,7 @@ def eval_model(
     predict_fn = _get_predict_fn(model, config_dict)
 
     # get the logger
-    logger, callback, results_comment, track_raw_data, noise_matrix = _eval_sim_loop(
+    logger, callback, results_comment, track_raw_data, noise_matrix, moving_gate_data = _eval_sim_loop(
         predict_fn=predict_fn,
         env=env,
         config_dict=config_dict,
@@ -661,4 +733,4 @@ def eval_model(
     # close the environment
     env.close()
 
-    return logger, track_raw_data, noise_matrix, save_dir, comment
+    return logger, track_raw_data, moving_gate_data, noise_matrix, save_dir, comment

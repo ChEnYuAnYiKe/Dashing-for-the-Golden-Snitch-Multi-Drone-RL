@@ -8,7 +8,7 @@ import gymnasium as gym
 from typing import Union, Optional
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, SubprocShareVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import CheckpointCallback
 
@@ -71,7 +71,7 @@ def pre_runner(config_dict: dict, eval_mode: bool = False) -> th.device:
 
 def build_env(
     config_dict: dict, current_dir: Union[str, os.PathLike], eval_mode: bool = False
-) -> Union[gym.Env, SubprocVecEnv]:
+) -> Union[gym.Env, SubprocVecEnv, SubprocShareVecEnv]:
     """Build the environment based on the configuration dictionary.
 
     Parameters
@@ -87,7 +87,7 @@ def build_env(
 
     Returns
     -------
-    env : Union[gym.Env, SubprocVecEnv]
+    env : Union[gym.Env, SubprocVecEnv, SubprocShareVecEnv]
         The created environment.
 
     """
@@ -103,11 +103,26 @@ def build_env(
 
     # create the environment
     if config_dict["pyrl"]["runner"] == "parallel":
-        env = make_vec_env(
-            **env_params,
-            vec_env_cls=SubprocVecEnv,
-        )
+        if config_dict.get("marl_hyperparams", None) is not None:
+            if config_dict["marl_hyperparams"].get("num_agent", 1) > 1:
+                # if MARL is used, set the share observation space
+                env = make_vec_env(
+                    **env_params,
+                    vec_env_cls=SubprocShareVecEnv,
+                )
+            else:
+                env = make_vec_env(
+                    **env_params,
+                    vec_env_cls=SubprocVecEnv,
+                )
+        else:
+            env = make_vec_env(
+                **env_params,
+                vec_env_cls=SubprocVecEnv,
+            )
     elif config_dict["pyrl"]["runner"] == "episode":
+        if config_dict.get("marl_hyperparams", None) is not None and not eval_mode:
+            raise ValueError("MARL is not supported in episode mode. Please set the runner to 'parallel'.")
         env_params = {
             "id": env_params["env_id"],
             **env_params["env_kwargs"],
@@ -191,7 +206,7 @@ def _find_checkpoint(config_dict: dict, current_dir: Union[str, os.PathLike]) ->
 def load_model(
     config_dict: dict,
     current_dir: Union[str, os.PathLike],
-    env: Optional[Union[gym.Env, SubprocVecEnv]] = None,
+    env: Optional[Union[gym.Env, SubprocVecEnv, SubprocShareVecEnv]] = None,
     device: Union[th.device, str] = "auto",
     eval_mode: bool = False,
 ) -> Union[PPO, th.nn.Module]:
@@ -203,7 +218,7 @@ def load_model(
         Dictionary containing the configuration parameters.
     current_dir : Union[str, os.PathLike]
         Current directory of the script.
-    env : Optional[Union[gym.Env, SubprocVecEnv]], optional
+    env : Optional[Union[gym.Env, SubprocVecEnv, SubprocShareVecEnv]], optional
         The created environment. Default is None.
     device : Union[th.device, str], optional
         The device to be used for training (CPU or GPU). Default is "auto".
@@ -288,6 +303,7 @@ def load_model(
         # create a new model
         policy_params = {
             **config_dict["rl_hyperparams"],
+            **(config_dict["marl_hyperparams"] if "marl_hyperparams" in config_dict else {}),
             "env": env,
             "tensorboard_log": tensorboard_log,
             "seed": config_dict["seed"],

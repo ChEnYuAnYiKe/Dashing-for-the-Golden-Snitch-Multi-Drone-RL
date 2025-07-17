@@ -3,6 +3,8 @@
 
 import argparse, os, yaml
 from typing import Union, Optional
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
 from gym_drones.utils.utils import recursive_dict_update, recursive_enum_mapping, fix_none_values, get_latest_run_id
 
 
@@ -255,6 +257,7 @@ def process_eval_config(config_dict: dict) -> None:
         )
     # process env config
     config_dict["env"]["env_kwargs"]["eval_mode"] = True
+    config_dict["env"]["env_kwargs"]["domain_rand"] = False
 
 
 def process_config(
@@ -348,6 +351,7 @@ def process_vis_config(
             config_dict = yaml.safe_load(f)
         except yaml.YAMLError as exc:
             assert False, "{} error: {}".format(file_name, exc)
+    config_dict["common_kwargs"] = config_dict.get("common_kwargs", {})
 
     radius = getattr(args, "radius", None)
     if radius is not None:
@@ -358,5 +362,55 @@ def process_vis_config(
         config_dict["shape_kwargs"]["margin"] = margin
 
     config_dict["track_kwargs"] = {**config_dict["shape_kwargs"], **config_dict["gate_kwargs"]}
+
+    _recursive_process_cmap(config_dict)
+
     fix_none_values(config_dict)
     return config_dict
+
+
+def _recursive_process_cmap(data: Union[dict, list]) -> None:
+    """
+    Recursively traverses a dictionary or list to find and process 'cmap' keys.
+
+    It converts string representations of colormaps or solid colors into
+    actual Matplotlib Colormap objects, modifying the data structure in-place.
+
+    Parameters
+    ----------
+    data : Union[dict, list]
+        The dictionary or list to traverse.
+    """
+    if not isinstance(data, dict):
+        return
+
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key == "cmap":
+                if isinstance(value, str):
+                    # Handle single string value
+                    try:
+                        data[key] = plt.get_cmap(value)
+                    except ValueError:
+                        data[key] = ListedColormap([value])
+                elif isinstance(value, list):
+                    # Handle list of strings
+                    processed_list = []
+                    for item in value:
+                        if isinstance(item, str):
+                            try:
+                                processed_list.append(plt.get_cmap(item))
+                            except ValueError:
+                                processed_list.append(ListedColormap([item]))
+                        else:
+                            # Keep non-string items as they are
+                            processed_list.append(item)
+                    data[key] = processed_list
+            elif isinstance(value, dict):
+                # If the value is another dictionary, recurse into it
+                _recursive_process_cmap(value)
+            elif isinstance(value, list):
+                # If the value is a list, recurse into its dictionary items
+                for item in value:
+                    if isinstance(item, dict):
+                        _recursive_process_cmap(item)

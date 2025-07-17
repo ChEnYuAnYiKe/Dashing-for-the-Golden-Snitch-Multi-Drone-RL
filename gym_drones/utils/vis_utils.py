@@ -34,12 +34,12 @@ def _data_to_racetrack(data: dict, shape_kwargs: dict, noise_matrix: np.ndarray)
     same_track = data.get("same_track", True)
     repeat_lap = data.get("repeat_lap", 1)
     # track waypoints
-    start_points = np.array(data["start_points"]).reshape((track_num_drones, -1, 3))
-    end_points = np.array(data["end_points"]).reshape((track_num_drones, -1, 3))
+    start_points = np.array(data["start_points"], dtype=float).reshape((track_num_drones, -1, 3))
+    end_points = np.array(data["end_points"], dtype=float).reshape((track_num_drones, -1, 3))
     if same_track:
-        waypoints = np.repeat(np.array(data["waypoints"]), track_num_drones, axis=0).reshape((track_num_drones, -1, 3))
+        waypoints = np.tile(np.array(data["waypoints"], dtype=float), (track_num_drones, 1, 1))
     else:
-        waypoints = np.array(data["waypoints"]).reshape((track_num_drones, -1, 3))
+        waypoints = np.array(data["waypoints"], dtype=float).reshape((track_num_drones, -1, 3))
 
     # check if the track is valid
     if ~same_track and repeat_lap > 1:
@@ -50,6 +50,10 @@ def _data_to_racetrack(data: dict, shape_kwargs: dict, noise_matrix: np.ndarray)
         main_segments = waypoints
     elif repeat_lap > 1:
         main_segments = np.tile(waypoints, (1, repeat_lap, 1))
+    if start_points.shape[1] > 1:
+        main_segments = np.concatenate((start_points[:, 1:], main_segments), axis=1)
+    if end_points.shape[1] > 1:
+        main_segments = np.concatenate((main_segments, end_points[:, :-1]), axis=1)
     main_segments += noise_matrix
 
     racetrack_list = []
@@ -123,13 +127,26 @@ def _logger_to_traj_data(logger: Logger) -> List[np.ndarray]:
         ).T
         arrays = [data[:, j] for j in range(data.shape[1])]
         data = fromarrays(arrays, dtype=dtype)
+
+        if hasattr(logger, "end_step"):
+            data = data[: logger.end_step[i]]
+
         # append the data to the list
         data_list.append(data)
-    return data_list
+    if hasattr(logger, "end_step"):
+        end_time = np.max(logger.end_step.copy() / logger.LOGGING_FREQ_HZ)
+    else:
+        end_time = None
+    crash_effect = logger.crashed_step > 0
+    return data_list, end_time, crash_effect
 
 
 def create_raceplotter(
-    logger: Logger, track_data: dict, shape_kwargs: dict, noise_matrix: np.ndarray
+    logger: Logger,
+    track_data: dict,
+    shape_kwargs: dict,
+    noise_matrix: np.ndarray,
+    moving_gate_data: Optional[np.ndarray] = None,
 ) -> BasePlotterList:
     """
     Create a RacePlotter list.
@@ -151,15 +168,26 @@ def create_raceplotter(
         The RacePlotter list for all drones.
     """
     # convert the logger data to a dictionary
-    data_list = _logger_to_traj_data(logger)
+    data_list, end_time, crash_effect = _logger_to_traj_data(logger)
 
     # convert the data to a racetrack
     racetrack_list = _data_to_racetrack(track_data, shape_kwargs, noise_matrix)
 
     # create the RacePlotter list
     raceplotter_list = []
+    color_cycle = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
+    if moving_gate_data is None:
+        moving_gate_data = [None] * logger.NUM_DRONES
     for i in range(logger.NUM_DRONES):
-        raceplotter = RacePlotter(traj_file=data_list[i], track_file=racetrack_list[i])
+        crash_kwargs = {"color": color_cycle[i % len(color_cycle)]}
+        raceplotter = RacePlotter(
+            traj_file=data_list[i],
+            track_file=racetrack_list[i],
+            end_time=end_time,
+            crash_effect=crash_effect[i],
+            crash_kwargs=crash_kwargs,
+            moving_gate_data=moving_gate_data[i],
+        )
         raceplotter_list.append(raceplotter)
     plotter = BasePlotterList(plotters=raceplotter_list)
     return plotter
@@ -170,6 +198,7 @@ def load_plotter_track(
     track_file: Union[str, os.PathLike, RaceTrack],
     plotter: Optional[RacePlotter] = None,
     index: Optional[list] = None,
+    plot_track_once: bool = False,
 ) -> Union[RacePlotter, BasePlotterList]:
     """
     Load the track file.
@@ -189,5 +218,8 @@ def load_plotter_track(
 
     """
     track_file = os.path.join(current_dir, "gym_drones/assets/Tracks/RaceUtils", f"{track_file}.yaml")
-    plotter.load_track(track_file=track_file, index=index)
+    if isinstance(plotter, RacePlotter):
+        plotter.load_track(track_file=track_file, index=index)
+    else:
+        plotter.load_track(track_file=track_file, index=index, plot_track_once=plot_track_once)
     return plotter

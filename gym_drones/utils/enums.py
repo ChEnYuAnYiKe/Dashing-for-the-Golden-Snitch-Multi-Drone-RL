@@ -5,7 +5,6 @@ class DroneModel(Enum):
     """Drone models enumeration class."""
 
     SINGLE_TEST_DRONE = "single_test_drone"  # single params
-    SINGLE_TRACK_DRONE = "single_track_drone"  # single params
     MULTI_TEST_DRONE = "multi_test_drone"  # multi params
     MULTI_5_UAV = "multi_test_drone_5uav"  # multi params
 

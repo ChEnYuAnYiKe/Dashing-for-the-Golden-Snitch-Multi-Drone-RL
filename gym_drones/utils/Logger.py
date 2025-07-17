@@ -48,6 +48,9 @@ class Logger(object):
         self.PREALLOCATED_ARRAYS = False if duration_sec == 0 else True
         self.counters = np.zeros(num_drones)
         self.timestamps = np.zeros((num_drones, duration_sec * self.LOGGING_FREQ_HZ))
+        self.crashed_step = np.zeros(num_drones, dtype=int)  # crashed step for each drone
+        self.finished_step = np.zeros(num_drones, dtype=int)  # finished step for each drone
+        self.end_step = np.zeros(num_drones, dtype=int)  # end step for each drone
         #### Note: this is the suggest information to log ##############################
         self.states = np.zeros((num_drones, 20, duration_sec * self.LOGGING_FREQ_HZ))  #### 20 states: pos (3,), 0-2
         # vel (3,), 3-5
@@ -97,6 +100,51 @@ class Logger(object):
         self.states[drone, :, current_counter] = state
         self.controls[drone, :, current_counter] = control
         self.counters[drone] = current_counter + 1
+
+    ################################################################################
+
+    def update_info(self, **kwargs):
+        """Updates the logger's internal attributes.
+
+        This method provides a flexible way to update any attribute of the Logger instance
+        at runtime. It is typically used at the end of a simulation or evaluation to record
+        final state information, such as the number of steps each drone completed.
+
+        Parameters
+        ----------
+        **kwargs : dict
+            Keyword arguments where the key is the attribute name (e.g., "finished_step")
+            and the value is the new value for that attribute.
+
+        """
+        # This method can be extended to log additional information if needed.
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+            else:
+                print(f"[WARNING] in Logger.update_info(), attribute '{key}' not found.")
+
+        # Post-process to determine the definitive end step for plotting
+        self._finalize_steps()
+
+    ################################################################################
+
+    def _finalize_steps(self):
+        """Computes the definitive end step for each drone based on its status.
+
+        This internal method processes the `crashed_step` and `finished_step`
+        attributes. For drones that did not crash or finish (where the step is 0),
+        their step count is treated as the full simulation duration for comparison.
+        The final `end_step` is then calculated as the earliest of these events.
+        """
+        max_steps = self.timestamps.shape[1]
+
+        # A step of 0 means the event didn't happen; use max_steps as a placeholder for comparison.
+        finished = np.where(self.finished_step == 0, max_steps, self.finished_step)
+        crashed = np.where(self.crashed_step == 0, max_steps, self.crashed_step)
+
+        # The actual end step is the minimum of the two events (finish or crash).
+        self.end_step = np.minimum(finished, crashed)
 
     ################################################################################
 
@@ -176,147 +224,137 @@ class Logger(object):
     def plot(self):
         """Logs entries for a single simulation step, of a single drone."""
         #### Loop over colors and line styles ######################
-        plt.rc(
-            "axes",
-            prop_cycle=(cycler("color", ["r", "g", "b", "y"]) + cycler("linestyle", ["-", "--", ":", "-."])),
-        )
-        fig, axs = plt.subplots(10, 2, figsize=(12, 8))
+        color_cycle = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
+        style_cycle = ["-", "--", ":", "-."]
+
+        fig, axs = plt.subplots(10, 2, figsize=(30, 27))
+        fig.suptitle("Drone Simulation Logs", fontsize=16, fontweight="bold")
         t = np.arange(0, self.timestamps.shape[1] / self.LOGGING_FREQ_HZ, 1 / self.LOGGING_FREQ_HZ)
         if len(t) > self.states.shape[2]:
             t = t[: self.states.shape[2]]
 
-        #### Column ################################################
-        col = 0
+        # Define plot configurations: (y_label, data_source, data_indices, target_indices)
+        # data_source: 0 for self.states, 1 for self.controls
+        plot_configs = [
+            # Column 0: States
+            [
+                ("x (m)", 0, [0], [16]),
+                ("y (m)", 0, [1], [17]),
+                ("z (m)", 0, [2], [18]),
+                ("Roll (rad)", 0, [6], None),
+                ("Pitch (rad)", 0, [7], None),
+                ("Yaw (rad)", 0, [8], None),
+                ("q w", 0, [15], None),
+                ("q x", 0, [12], None),
+                ("q y", 0, [13], None),
+                ("q z", 0, [14], None),
+            ],
+            # Column 1: Velocities, Rates, and Inputs
+            [
+                ("vx (m/s)", 0, [3], None),
+                ("vy (m/s)", 0, [4], None),
+                ("vz (m/s)", 0, [5], None),
+                ("wx (rad/s)", 0, [9], None),
+                ("wy (rad/s)", 0, [10], None),
+                ("wz (rad/s)", 0, [11], None),
+                ("Input Thrust", 1, [0], None),
+                ("Input p", 1, [1], None),
+                ("Input q", 1, [2], None),
+                ("Input r", 1, [3], None),
+            ],
+        ]
 
-        #### XYZ ###################################################
-        row = 0
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 0, :], label="drone_" + str(j))
-            axs[row, col].plot(t, self.states[j, 16, :], label="target_x")
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("x (m)")
+        for col_idx, col_configs in enumerate(plot_configs):
+            for row_idx, config in enumerate(col_configs):
+                ax = axs[row_idx, col_idx]
+                y_label, data_source_idx, data_indices, target_indices = config
 
-        row = 1
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 1, :], label="drone_" + str(j))
-            axs[row, col].plot(t, self.states[j, 17, :], label="target_y")
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("y (m)")
+                data_source = self.states if data_source_idx == 0 else self.controls
 
-        row = 2
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 2, :], label="drone_" + str(j))
-            axs[row, col].plot(t, self.states[j, 18, :], label="target_z")
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("z (m)")
+                for drone_idx in range(self.NUM_DRONES):
+                    color = color_cycle[drone_idx % len(color_cycle)]
+                    style = style_cycle[drone_idx % len(style_cycle)]
 
-        #### RPY ###################################################
-        row = 3
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 6, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("r (rad)")
-        row = 4
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 7, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("p (rad)")
-        row = 5
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 8, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("y (rad)")
+                    end_step = self.end_step[drone_idx]
+                    if end_step > 0:
+                        t_plot = np.arange(0, end_step / self.LOGGING_FREQ_HZ, 1 / self.LOGGING_FREQ_HZ)
+                        if len(t_plot) > end_step:
+                            t_plot = t_plot[:end_step]
+                    else:
+                        t_plot = t
+                        end_step = self.timestamps.shape[1]
 
-        #### Quat ##################################################
-        row = 6
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 15, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("q w")
-        row = 7
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 12, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("q x")
-        row = 8
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 13, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("q y")
-        row = 9
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 14, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("q z")
+                    # Plot target data if specified
+                    if target_indices:
+                        for target_idx in target_indices:
+                            # Use a distinct style for targets
+                            ax.plot(
+                                t_plot,
+                                self.states[drone_idx, target_idx, :end_step],
+                                color="k",
+                                linestyle=":",
+                                label=f"Target",
+                            )
 
-        #### Column ################################################
-        col = 1
+                    # Plot main data
+                    for data_idx in data_indices:
+                        ax.plot(
+                            t_plot,
+                            data_source[drone_idx, data_idx, :end_step],
+                            color=color,
+                            linestyle=style,
+                            label=f"Drone {drone_idx}",
+                        )
 
-        #### Velocity ##############################################
-        row = 0
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 3, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("vx (m/s)")
-        row = 1
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 4, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("vy (m/s)")
-        row = 2
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 5, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("vz (m/s)")
+                    # Add markers for finished or crashed events
+                    if row_idx < 3 and col_idx == 0:
+                        # Marker for finishing
+                        finish_step = self.finished_step[drone_idx]
+                        if finish_step > 0 and finish_step <= len(t_plot):
+                            finish_time = finish_step / self.LOGGING_FREQ_HZ
+                            finish_val = self.states[drone_idx, row_idx, finish_step - 1]
+                            ax.plot(finish_time, finish_val, "g*", markersize=12, label=f"Drone {drone_idx} Finished")
 
-        #### RPY Rates #############################################
-        row = 3
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 9, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("wx")
-        row = 4
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 10, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("wy")
-        row = 5
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.states[j, 11, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("wz")
+                        # Marker for crashing
+                        crash_step = self.crashed_step[drone_idx]
+                        if crash_step > 0 and crash_step <= len(t_plot):
+                            crash_time = crash_step / self.LOGGING_FREQ_HZ
+                            crash_val = self.states[drone_idx, row_idx, crash_step - 1]
+                            ax.plot(crash_time, crash_val, "rX", markersize=10, label=f"Drone {drone_idx} Crashed")
 
-        #### Inputs ##################################################
-        # thrust
-        row = 6
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.controls[j, 0, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("input T")
-        # rate p
-        row = 7
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.controls[j, 1, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("input p")
-        # rate q
-        row = 8
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.controls[j, 2, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("input q")
-        # rate r
-        row = 9
-        for j in range(self.NUM_DRONES):
-            axs[row, col].plot(t, self.controls[j, 3, :], label="drone_" + str(j))
-        axs[row, col].set_xlabel("time")
-        axs[row, col].set_ylabel("input r")
+                # Only show x-axis label on the bottom-most plot in each column
+                if row_idx == len(col_configs) - 1:
+                    ax.set_xlabel("Time (s)", fontsize=10)
+                    ax.tick_params(axis="x", labelsize=8)
+                else:
+                    ax.tick_params(axis="x", labelbottom=False)  # Hide x-tick labels for non-bottom plots
+
+                ax.set_ylabel(y_label, fontsize=10)
+                ax.tick_params(axis="y", labelsize=8)
+                ax.grid(True)
 
         #### Drawing options #######################################
-        for i in range(10):
-            for j in range(2):
-                axs[i, j].grid(True)
-                axs[i, j].legend(loc="upper right", frameon=True)
-        fig.subplots_adjust(left=0.06, bottom=0.05, right=0.99, top=0.98, wspace=0.15, hspace=0.0)
+        # Create a single, shared legend for the entire figure
+        handles, labels = [], []
+        for ax in axs.flat:
+            h, l = ax.get_legend_handles_labels()
+            for i, label in enumerate(l):
+                if label not in labels:
+                    labels.append(label)
+                    handles.append(h[i])
+
+        # Place legend at the bottom of the figure
+        if handles:
+            fig.legend(
+                handles,
+                labels,
+                loc="lower center",
+                ncol=min(self.NUM_DRONES + 1, 6),
+                bbox_to_anchor=(0.5, 0.01),
+                fontsize=16,
+            )
+
+        # Adjust layout to prevent overlap and make space for legend and title
+        fig.tight_layout(rect=[0, 0.03, 1, 0.98])  # rect=[left, bottom, right, top]
 
         plt.show()

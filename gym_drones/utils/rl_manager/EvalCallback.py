@@ -364,10 +364,12 @@ class EvalTimeCallback(EvalBaseCallback):
         self.start_time = np.zeros((self.num_drones,))
         self.end_time = np.zeros((self.num_drones,))
         self.num_waypoints = np.zeros((self.num_drones,))
+        self.crashed = np.full((self.num_drones,), False)
         self.finished = np.full((self.num_drones,), False)
         self.start_flag = np.full((self.num_drones,), False)
         self.end_flag = np.full((self.num_drones,), False)
         self.lap_time_list = []
+        self.crashed_list = []
         self.finished_list = []
         self._get_lap_points()
 
@@ -379,21 +381,24 @@ class EvalTimeCallback(EvalBaseCallback):
         # track waypoints
         start_points = np.array(self.data["start_points"]).reshape((self.num_drones, -1, 3))
         if same_track:
-            waypoints = np.repeat(np.array(self.data["waypoints"]), self.num_drones, axis=0).reshape(
-                (self.num_drones, -1, 3)
-            )
+            waypoints = np.tile(np.array(self.data["waypoints"]), (self.num_drones, 1, 1))
         else:
             waypoints = np.array(self.data["waypoints"]).reshape((self.num_drones, -1, 3))
 
         start_len = start_points.shape[1]
         main_seg_len = waypoints.shape[1]
 
-        nth_seg = round((repeat_lap + 1) / 2)
+        if repeat_lap == 1:
+            nth_seg = 1
+        else:
+            nth_seg = round((repeat_lap + 1) / 2)
         self.start_index = start_len + (nth_seg - 1) * main_seg_len
         self.end_index = self.start_index + main_seg_len
 
     def _print_drone_lap_info(self) -> None:
         print("    Lap infos:")
+        print(f"        - Crash Rate: {self.crashed.mean() * 100:.2f}%")
+        print(f"        - Finish Rate: {self.finished.mean() * 100:.2f}%")
         print(f"        - Lap points: Pt.{self.start_index + 1} - Pt.{self.end_index + 1}")
         print("        " + "-" * 41)
         print("        | Drone | Start(s) |  End(s)  | Time(s) | Status")
@@ -403,7 +408,7 @@ class EvalTimeCallback(EvalBaseCallback):
             end_time = self.end_time[i]
 
             # if the drone never passed the start point
-            if start_time == 0:
+            if start_time == 0 and self.start_index > 1:
                 status = "NEVER_STARTED"
                 time_str = "---"
                 start_str = "---"
@@ -429,12 +434,14 @@ class EvalTimeCallback(EvalBaseCallback):
         self.start_time = np.zeros((self.num_drones,))
         self.end_time = np.zeros((self.num_drones,))
         self.num_waypoints = np.zeros((self.num_drones,))
+        self.crashed = np.full((self.num_drones,), False)
         self.finished = np.full((self.num_drones,), False)
         self.start_flag = np.full((self.num_drones,), False)
         self.end_flag = np.full((self.num_drones,), False)
 
     def _on_step(self):
         self.num_waypoints = self.env.num_waypoints.copy().reshape((self.num_drones,))
+        self.crashed = np.array(self.env.crashed).copy().reshape((self.num_drones,))
         self.finished = np.array(self.env.finished).copy().reshape((self.num_drones,))
         # set the start time for each drone
         start_indices = np.where((~self.start_flag) & (self.num_waypoints >= self.start_index))[0]
@@ -450,19 +457,36 @@ class EvalTimeCallback(EvalBaseCallback):
     def _on_episode_end(self):
         """Called at the end of each episode."""
         lap_time = self.end_time - self.start_time
+        self.crashed_list.append(self.crashed.copy())
         self.finished_list.append(self.finished.copy())
         self.lap_time_list.append(lap_time.copy())
         if self.verbose > 0:
             self._print_drone_lap_info()
 
     def _on_eval_end(self) -> None:
-        self.lap_time_mean = np.array(self.lap_time_list).mean()
-        self.lap_time_std = np.array(self.lap_time_list).std()
+        # Convert the list of lap times to a 2D NumPy array
+        lap_times_arr = np.array(self.lap_time_list)
+
+        # Create a boolean mask for finished drones across all episodes
+        finished_mask = np.array(self.finished_list)
+
+        # Filter for valid lap times (only for drones that finished)
+        valid_lap_times = lap_times_arr[finished_mask]
+
+        if valid_lap_times.size > 0:
+            self.lap_time_mean = valid_lap_times.mean()
+            self.lap_time_std = valid_lap_times.std()
+        else:
+            self.lap_time_mean = 0.0
+            self.lap_time_std = 0.0
+
+        self.crashed_mean = np.array(self.crashed_list).mean()
         self.finished_mean = np.array(self.finished_list).mean()
         if self.verbose > 0:
             print(f"[Time Info]")
-            print(f"Lap time: {self.lap_time_mean} ± {self.lap_time_std} s")
-            print(f"Finished Rate: {(self.finished_mean * 100):.2f}%")
+            print(f"Lap time: {self.lap_time_mean:.2f} ± {self.lap_time_std:.2f} s")
+            print(f"Crash Rate: {(self.crashed_mean * 100):.2f}%")
+            print(f"Finish Rate: {(self.finished_mean * 100):.2f}%")
 
     def save_results(self, save_dir: Union[str, os.PathLike], comment: str = "") -> None:
         """Save the results to a file.

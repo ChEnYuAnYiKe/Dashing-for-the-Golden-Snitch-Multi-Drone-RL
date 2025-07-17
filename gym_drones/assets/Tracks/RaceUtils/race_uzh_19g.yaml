@@ -16,7 +16,7 @@ endState:
   euler: [0.0, 0.0, 0.0]
   rot: [1.0, 0.0, 0.0, 0.0]
 
-orders: ['Gate1', 'Gate2', 'Gate3','Gate4', 'Gate5','Gate6','Gate7']
+orders: ['Gate1', 'Gate2', 'Gate3', 'Gate4', 'Gate5', 'Gate6', 'Gate7']
 
 Gate1:
   type: 'RectanglePrisma'

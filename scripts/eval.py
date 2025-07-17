@@ -7,13 +7,14 @@ from gym_drones.utils.rl_manager.runner import pre_runner, build_env, load_model
 from gym_drones.utils.rl_manager.eval_utils import eval_model
 from gym_drones.utils.vis_utils import create_raceplotter, load_plotter_track
 
-import matplotlib.pyplot as plt
-
 #### Set Constants #######################################
 current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 envkey = {
     "hover_race": "hover_race",
+    "race_multi_2": "race_multi_2",
+    "race_multi_3": "race_multi_3",
+    "race_multi_5": "race_multi_5",
     "kin_2d": "kin_2d",
     "kin_3d": "kin_3d",
     "kin_rel_2d": "kin_rel_2d",
@@ -23,6 +24,9 @@ envkey = {
 }
 algkey = {
     "hover_race": "ppo",
+    "race_multi_2": "ippo",
+    "race_multi_3": "ippo",
+    "race_multi_5": "ippo",
     "kin_2d": "ppo",
     "kin_3d": "ppo",
     "kin_rel_2d": "ppo",
@@ -32,6 +36,9 @@ algkey = {
 }
 runkey = {
     "hover_race": "hover_race",
+    "race_multi_2": "race_multi_2",
+    "race_multi_3": "race_multi_3",
+    "race_multi_5": "race_multi_5",
     "kin_2d": "kin_2d",
     "kin_3d": "kin_3d",
     "kin_rel_2d": "kin_rel_2d",
@@ -46,6 +53,7 @@ enum_mapping = {
     "act": ActionType,
     "dim": SimulationDim,
     "activation_fn": th.nn,
+    "output_activation_fn": th.nn,
 }
 
 
@@ -69,11 +77,12 @@ def run():
     parser.add_argument("--seed", type=int, required=False, help="Specify the random seed.")
     parser.add_argument("--comment", type=str, required=False, help="Specify the comment for the results.")
     parser.add_argument("--track", type=str, required=False, help="Specify the track name.")
-    parser.add_argument("--track_sigma", type=float, default=0.1, help="Specify the track sigma.")
+    parser.add_argument("--track_sigma", type=float, default=0.0, help="Specify the track sigma.")
     parser.add_argument("--save_timestamps", action="store_true", help="Save timestamps.")
     parser.add_argument("--radius", type=float, required=False, help="Specify the radius for the waypoints.")
     parser.add_argument("--margin", type=float, required=False, help="Specify the margin for the waypoints.")
     parser.add_argument("--vis_config", type=str, default="waypoints", help="Specify the visualization config file.")
+    parser.add_argument("--save_video", default=False, action="store_true", help="Save the video of the evaluation.")
 
     # Use the arguments
     args = parser.parse_args()
@@ -85,6 +94,10 @@ def run():
         print(
             "No config file specified. Using default config, which may not be suitable for your environment or model."
         )
+    if "race_multi" in args.env and args.vis_config == "waypoints":
+        args.vis_config = "waypoints_multi"
+    if "race_multi_5" in args.env and args.vis_config == "waypoints_multi":
+        args.vis_config = "waypoints_multi_5"
 
     # Read the config file
     config_dict = process_config(
@@ -108,7 +121,7 @@ def run():
     model = load_model(config_dict=config_dict, current_dir=current_dir, eval_mode=True)
 
     # evaluate the model and get the logger
-    logger, track_raw_data, noise_matrix, save_dir, comment = eval_model(
+    logger, track_raw_data, moving_gate_data, noise_matrix, save_dir, comment = eval_model(
         model=model,
         env=env,
         config_dict=config_dict,
@@ -119,6 +132,10 @@ def run():
         track_name=args.track,
         track_sigma=args.track_sigma,
     )
+    # update visualization config
+    track_vis_config = track_raw_data.get("vis_config", None)
+    if track_vis_config is not None:
+        args.vis_config = track_vis_config
 
     # create the raceplotter
     vis_config_dict = process_vis_config(args=args, current_dir=current_dir, file_name=args.vis_config)
@@ -127,18 +144,19 @@ def run():
         track_data=track_raw_data,
         shape_kwargs=vis_config_dict["shape_kwargs"],
         noise_matrix=noise_matrix,
+        moving_gate_data=moving_gate_data,
     )
 
-    # visualize the results
-    cmap = plt.cm.cool_r
     vis_config_dict["track_file"] = vis_config_dict.get("track_file", None)
     if vis_config_dict["track_file"] is not None:
         raceplotter = load_plotter_track(
-            current_dir=current_dir, track_file=vis_config_dict["track_file"], plotter=raceplotter
+            current_dir=current_dir,
+            track_file=vis_config_dict["track_file"],
+            plotter=raceplotter,
+            plot_track_once=vis_config_dict.get("plot_track_once", False),
         )
     ############# 2D Visualization ##########################
     raceplotter.plot(
-        cmap=cmap,
         save_fig=True,
         save_path=save_dir,
         fig_name=comment,
@@ -148,7 +166,6 @@ def run():
     )
     ############# 3D Visualization ##########################
     raceplotter.plot3d(
-        cmap=cmap,
         save_fig=True,
         save_path=save_dir,
         fig_name=comment,
@@ -159,10 +176,9 @@ def run():
     )
     ############# Animation Visualization ###################
     ani_list = raceplotter.create_animation(
-        cmap=cmap,
         drone_kwargs=vis_config_dict["drone_kargs"],
-        track_kargs=vis_config_dict["track_kwargs"],
-        # save_path=save_dir,
+        track_kwargs=vis_config_dict["track_kwargs"],
+        save_path=save_dir if args.save_video else None,
         video_name=comment,
         **vis_config_dict["ani_kwargs"],
     )

@@ -738,7 +738,7 @@ class DroneBase(gym.Env):
             scale_T = truncnorm(-1, 1, loc=1.0, scale=0.1).rvs(size=num_drones)
             T = T * scale_T
             # create a uniform distribution for scaling drag coefficients
-            random_factors = np.random.uniform(0.8, 1.2, size=(num_drones, DRAG_COEFF_L.shape))
+            random_factors = np.random.uniform(0.8, 1.2, size=(num_drones,) + DRAG_COEFF_L.shape)
             DRAG_COEFF_L = DRAG_COEFF_L * random_factors
 
         #### state derivative ######################################

@@ -1,3 +1,6 @@
 [submodule "gym_drones/utils/RaceUtils"]
 	path = gym_drones/utils/RaceUtils
 	url = https://github.com/KafuuChikai/RaceUtils.git
+[submodule "gym_drones/utils/stable-baselines3"]
+	path = gym_drones/utils/stable-baselines3
+	url = https://github.com/KafuuChikai/stable-baselines3.git

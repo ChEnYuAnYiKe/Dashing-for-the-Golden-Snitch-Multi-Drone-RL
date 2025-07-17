@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools", "wheel", "black==24.10.0"]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "gym-drones"
-version = "0.2.6"
+version = "0.3.0"
 description = "Simple gym for drones RL"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,12 +15,22 @@ dependencies = [
     "pyyaml",
     "pytest",
     "gymnasium",
-    "stable-baselines3 == 2.2.1",
+    "stable-baselines3 @ file:./gym_drones/utils/stable-baselines3",
     "tensorboard",
     "tqdm",
     "rich",
     "race-utils @ file:./gym_drones/utils/RaceUtils",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "black==24.10.0",
+    "pre-commit",
+    "pytest-cov",
+]
+
+[tool.setuptools.package-data]
+"gym_drones" = ["assets/**/*"]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -28,3 +38,9 @@ include = ["gym_drones", "gym_drones.*"]
 
 [tool.black]
 line-length = 120
+extend-exclude = '''
+/(
+    gym_drones/utils/stable-baselines3
+  | gym_drones/utils/RaceUtils
+)/
+'''

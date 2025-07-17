@@ -34,11 +34,11 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install black==24.10.0
-          pip install -e .
+          pip install .
+          pip install .[dev]
 
       - name: Black Format Check
         run: black --check .
 
       - name: Run tests
-        run: pytest
+        run: pytest --ignore=gym_drones/utils/stable-baselines3

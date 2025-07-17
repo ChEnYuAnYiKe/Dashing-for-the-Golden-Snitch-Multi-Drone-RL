@@ -10,6 +10,9 @@ current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 envkey = {
     "hover_race": "hover_race",
+    "race_multi_2": "race_multi_2",
+    "race_multi_3": "race_multi_3",
+    "race_multi_5": "race_multi_5",
     "kin_2d": "kin_2d",
     "kin_3d": "kin_3d",
     "kin_rel_2d": "kin_rel_2d",
@@ -19,6 +22,9 @@ envkey = {
 }
 algkey = {
     "hover_race": "ppo",
+    "race_multi_2": "ippo",
+    "race_multi_3": "ippo",
+    "race_multi_5": "ippo",
     "kin_2d": "ppo",
     "kin_3d": "ppo",
     "kin_rel_2d": "ppo",
@@ -28,6 +34,9 @@ algkey = {
 }
 runkey = {
     "hover_race": "hover_race",
+    "race_multi_2": "race_multi_2",
+    "race_multi_3": "race_multi_3",
+    "race_multi_5": "race_multi_5",
     "kin_2d": "kin_2d",
     "kin_3d": "kin_3d",
     "kin_rel_2d": "kin_rel_2d",
@@ -42,6 +51,7 @@ enum_mapping = {
     "act": ActionType,
     "dim": SimulationDim,
     "activation_fn": th.nn,
+    "output_activation_fn": th.nn,
 }
 
 

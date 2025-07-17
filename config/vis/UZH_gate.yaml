@@ -3,10 +3,12 @@ track_file: race_uzh_19g
 
 2d_kwargs:
   dpi: 300
+  cmap: cool_r
 
 3d_kwargs:
   dpi: 300
   shade: True
+  cmap: cool_r
 
 # ani config
 ani_kwargs:
@@ -17,6 +19,7 @@ ani_kwargs:
   hide_background: False
   hide_ground: False
   # flash_gate: False
+  cmap: cool_r
 
 # show the drone
 drone_kargs:

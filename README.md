@@ -1,17 +1,34 @@
-# Dashing for the Golden Snitch: Multi-Drone RL
+<p align="center">
+  <h1 align="center"><ins>Dashing for the Golden Snitch:</ins>✨<br>Multi-Drone RL (V0.3.0)</h1>
+  <h2 align="center">
+    <a href="https://youtu.be/KACuFMtGGpo" align="center">Video ⤵️</a>
+  </h2>
+</p>
+
+<p align="center">
+  <a href="https://youtu.be/KACuFMtGGpo">
+    <img src="https://img.youtube.com/vi/KACuFMtGGpo/maxresdefault.jpg" alt="Demonstration" width="75%">
+  </a>
+  <br>
+  <em>Real-world experiments with two quadrotors achieve a maximum speed of 13.65 m/s and a maximum body rate</em>
+  <br>
+  <em> of 13.4 rad/s in a 5.5 m x 5.5 m x 2.0 m space across various tracks, relying entirely on onboard computation.</em>
+</p>
 
 ## Table of Contents
 
 1. [Introduction](#introduction)
    - [News](#news)
-   - [Demonstration Video](#demonstration-video)
    - [Related Papers](#related-papers)
 2. [Quick Installation](#quick-installation)
 3. [Usage](#usage)
-   - [Start training (Beta)](#start-training-beta)
-   - [Evaluation (Beta)](#evaluation-beta)
+   - [Start training](#start-training-beta)
+   - [Evaluation](#evaluation-beta)
 4. [Citation](#citation)
 5. [License](#license)
+
+> [!NOTE]
+> For detailed instructions on installation, training, evaluation, and a full list of command-line arguments, please refer to our **[User Manual](docs/USER_MANUAL.md)**.
 
 ## Introduction
 
@@ -21,174 +38,85 @@
 
 ### News
 
-- **Coming Soon**: 📢 Full multi-agent version will be released shortly. Stay tuned!
+- **July 17, 2025**: 📢 Full multi-agent version released!
 - **May 31, 2025**: 🚀 Full Single-agent version released!
 - **April 7, 2025**: 🚀 Single-agent version released! Now available for training and testing (beta) in single-drone scenarios.
 - **March 5, 2025**: 📄 The camera-ready version of our paper has been updated on [arXiv](https://arxiv.org/abs/2409.16720).
 - **January 27, 2025**: 🎉 Our paper has been accepted to **ICRA 2025**!
 - **September 25, 2024**: 📝 Paper preprint available on arXiv.
 
-### Demonstration Video
-
-[![Demonstration](https://img.youtube.com/vi/KACuFMtGGpo/maxresdefault.jpg)](https://youtu.be/KACuFMtGGpo)
-
-Real-world experiments with two quadrotors using the same network achieve **a maximum speed of 13.65 m/s** and **a maximum body rate of 13.4 rad/s** in a *5.5 m x 5.5 m x 2.0 m* space across various tracks, **relying entirely on onboard computation**.
-
 ### Related Papers
 - [**Dashing for the Golden Snitch: Multi-Drone Time-Optimal Motion Planning with Multi-Agent Reinforcement Learning**](https://arxiv.org/abs/2409.16720),  Wang, X., Zhou, J., Feng, Y., Mei, J., Chen, J., & Li, S. (2024), arXiv preprint arXiv:2409.16720. **Accepted at ICRA 2025**.
 
 ## Quick Installation
 
-It's recommended to use a virtual environment, such as conda:
+1.  **Create Environment**:
+    ```bash
+    conda create -n marl_drones python=3.11
+    conda activate marl_drones
+    ```
 
-```bash
-conda create -n marl_drones python=3.11 # Requires Python >= 3.10
-conda activate marl_drones
-```
+2.  **Clone and Install**:
+    ```bash
+    git clone git@github.com:KafuuChikai/Dashing-for-the-Golden-Snitch-Multi-Drone-RL.git
+    cd Dashing-for-the-Golden-Snitch-Multi-Drone-RL
+    git submodule update --init --recursive
+    pip install -e .
+    ```
 
-1. For the latest version, clone the repository and install it locally:
+3.  **Install PyTorch**:
+    Install the correct version of **PyTorch** for your system by following the [official instructions](https://pytorch.org/get-started/locally/).
 
-   ```bash
-   # clone the repository
-   git clone https://github.com/KafuuChikai/Dashing-for-the-Golden-Snitch-Multi-Drone-RL.git
-   cd Dashing-for-the-Golden-Snitch-Multi-Drone-RL
-   
-   # update the submodule
-   git submodule update --init --recursive
-   
-   # install the package and dependencies
-   pip install -e .
-   ```
-
-> [!NOTE]
-> **PyTorch** is excluded from the dependencies because its version depends on your system setup. Install the correct version manually based on your hardware and CUDA configuration.
-
-2. Install the correct version of **PyTorch** following the [official instructions](https://pytorch.org/get-started/locally/).
+For more advanced installation options (e.g., for development), see the [User Manual](docs/USER_MANUAL.md).
 
 ## Usage
 
-### Start Training (Beta)
+### Start Training
 
-To start training, run the following command:
+To start training, run one of the following commands:
 
-```bash
-python scripts/train.py -e hover_race -B 16
-```
+- **For single-agent training:**
+   ```bash
+   python scripts/train.py -e hover_race
+   ```
 
-Below are the available drone reinforcement learning environments, including practical scenarios and several examples:
+- **For multi-agent training (2 drones):**
+   ```bash
+   python scripts/train.py -e race_multi_2
+   ```
 
-| Env Code     | Name                | Description                                                  |
-| ------------ | ------------------- | ------------------------------------------------------------ |
-| `hover_race` | Race (single drone) | Real drone control scenario, training drones to navigate through tracks |
+> [!TIP]
+> If your computer's performance is limited, you can reduce the number of parallel environments to lower resource usage. For example, use `-B 16` to run 16 environments in parallel.
 
-| Tutorial Code | Name                                    | Description                                                  |
-| ------------- | --------------------------------------- | ------------------------------------------------------------ |
-| `kin_2d`      | 2D Kinematics ⚠️ **Non-working example** | Simplified 2D movement control, focusing on Y and Z axes only |
-| `kin_3d`      | 3D Kinematics ⚠️ **Non-working example** | Complete 3D space movement control                           |
-| `kin_rel_2d`  | 2D Relative Kinematics                  | 2D motion control based on relative positions                |
-| `kin_rel_3d`  | 3D Relative Kinematics                  | 3D motion control based on relative positions                |
-| `pos_rel`     | Position Relative Control               | observe previous step actions                                |
-| `rot_rel`     | Rotation Relative Control               | Using rotation matrices for continue orientation observation |
+### Evaluation
 
-The script supports the following command-line arguments:
+|  |  |
+| :---------- | :---------- |
+| <video src="https://github.com/user-attachments/assets/4971501e-bc81-4c1a-aec7-e794125dc193" /> | <video src="https://github.com/user-attachments/assets/4211e1ae-d321-45bf-bf8a-52991d878eea" /> |
 
-| Arguments             | Short | Type   | Required | Description                                                |
-|-----------------------|-------|--------|----------|------------------------------------------------------------|
-| `--env`               | `-e`  | `str`  | Yes      | Specify the environment (e.g., `hover_race`).              |
-| `--exp_name`          | `-n`  | `str`  | No       | Specify the experiment name.                               |
-| `--num_envs`          | `-B`  | `int`  | No       | Specify the number of environments.                        |
-| `--max_steps`         | `-M`  | `int`  | No       | Specify the maximum number of steps.                       |
-| `--save_num`          | `-S`  | `int`  | No       | Specify the number of checkpoints to save.                 |
-| `--load_model`        | `-m`  | `str`  | No       | Specify the path to load a pre-trained model.              |
-| `--load_ckpt`         | `-c`  | `str`  | No       | Specify the path to load a checkpoint.                     |
-| `--load_step`         | `-s`  | `int`  | No       | Specify the step to load from a checkpoint.                |
-| `--config`            | `-f`  | `str`  | No       | Specify the path to the configuration file.                |
-| `--verbose`           | `-v`  | `int`  | No       | Specify the verbosity level (e.g., `0`, `1` or `2`).       |
-| `--seed`              | None  | `int`  | No	    | Specify the random seed.                                   |
-| `--no_reset_t`        | None  | `bool` | No	    |	Do not reset the timestep. default: use `config.yaml`.     |
+|  |  |  |
+| :---------- | :---------- | :---------- |
+| <img src="docs/images/Face_2uav_move_drone1_3d.png" /> | <img src="docs/images/Face_2uav_move_drone2_3d.png" /> | <video src="https://github.com/user-attachments/assets/2e0c4502-95e2-4b02-94cf-f87b21c82db0" /> |
 
-**Examples**
+1. To evaluate the `hover_race` demo, run the following:
 
-- Run the following command to train in the `hover_race` environment with 16 parallel environments:
-```bash
-python scripts/train.py -e hover_race -B 16
-```
+   ```bash
+   python scripts/eval.py -e hover_race -m demo_model/Race_single.pt -v 2 --track single_drone/UZH_single.yaml
+   ```
 
-- To load a pre-trained model and continue training:
-```bash
-python scripts/train.py -e hover_race -m path/to/model
-```
+2. To evaluate the `race_multi_2` demo, run the following:
 
-- To use a configuration file for training parameters:
-```bash
-python scripts/train.py -e hover_race -f path/to/config
-```
+   ```bash
+   python scripts/eval.py -e race_multi_2 -m demo_model/Race_multi_2.pt -v 2 --track 2_drones/Star_5_multi_2uav.yaml
+   ```
 
-- To load a checkpoint from step `500,000`:
-```bash
-python scripts/train.py -e hover_race -c path/to/checkpoints -s 500000
-```
+3. To evaluate the `race_multi_2` demo with **moving gates**, run the following:
 
-### Evaluation (Beta)
+   ```bash
+   python scripts/eval.py -e race_multi_2 -m demo_model/Race_multi_2.pt -v 2 --track 2_drones/Face_2uav_move.yaml
+   ```
 
-|                                                              |                                                              |
-| :----------------------------------------------------------- | :----------------------------------------------------------- |
-| <video src="https://github.com/user-attachments/assets/cc6415c5-8db9-4b05-b87e-c753c4c8fb65" /> | <video src="https://github.com/user-attachments/assets/328413a2-fbcf-425c-a349-8c2891fac08b" /> |
-
-To evaluate the demo, run the following:
-
-```bash
-python scripts/eval.py -e hover_race -m demo_model/Race_single.pt -v 2 --track single_drone/UZH_single.yaml --track_sigma 0 --vis_config UZH_gate
-```
-
-```bash
-python scripts/eval.py -e hover_race -m demo_model/Race_single.pt -v 2 --track single_drone/Star_5_single.yaml --track_sigma 0 --vis_config star_tracks
-```
-
-The script supports the following command-line arguments:
-
-| Arguments           | Short | Type    | Required | Description                                             |
-| ------------------- | ----- | ------- | -------- | ------------------------------------------------------- |
-| `--env`             | `-e`  | `str`   | Yes      | Specify the environment (e.g., `hover_race`).           |
-| `--exp_name`        | `-n`  | `str`   | No       | Specify the experiment name.                            |
-| `--eval_name`       | `-r`  | `str`   | No       | Specify the evaluation name.                            |
-| `--load_model`      | `-m`  | `str`   | No       | Specify the path to load a pre-trained model.           |
-| `--load_ckpt`       | `-c`  | `str`   | No       | Specify the path to load a checkpoint.                  |
-| `--load_step`       | `-s`  | `int`   | No       | Specify the step to load from a checkpoint.             |
-| `--save_eval`       | `-S`  | `str`   | No       | Specify the path to save evaluation results.            |
-| `--config`          | `-f`  | `str`   | No       | Specify the path to the configuration file.             |
-| `--verbose`         | `-v`  | `int`   | No       | Specify the verbosity level (e.g., `0`, `1` or `2`).    |
-| `--no_ow`           | `-k`  | `bool`  | No       | Do not overwrite the results.                           |
-| `--seed`            | None  | `int`   | No       | Specify the random seed.                                |
-| `--comment`         | None  | `str`   | No       | Specify a comment for the results (default: `results`). |
-| `--track`           | None  | `str`   | No       | Specify the track name.                                 |
-| `--track_sigma`     | None  | `float` | No       | Specify the track noise.                                |
-| `--save_timestamps` | None  | `bool`  | No       | Save files with timestamps (flag argument).             |
-| `--radius`          | None  | `float` | No       | Specify the radius for waypoints (default: `1.0`).      |
-| `--margin`          | None  | `float` | No       | Specify the margin for waypoints (default: `0.0`).      |
-| `--vis_config`      | None  | `str`   | No       | Specify the visualization config file.                  |
-
-**Examples**
-
-- Run the following command to evaluate in the hover_race environment using a pre-trained model:
-```bash
-python scripts/eval.py -e hover_race -m path/to/model
-```
-
-- To specify a configuration file for evaluation:
-```bash
-python scripts/eval.py -e hover_race -m path/to/model -f path/to/config
-```
-
-- To save evaluation results to a specific directory:
-```bash
-python scripts/eval.py -e hover_race -m path/to/model -S path/to/save_results
-```
-
-- To add a comment to the evaluation results:
-```bash
-python scripts/eval.py -e hover_race -m path/to/model --comment your_comment
-```
+For evaluation instructions and a full list of command-line arguments, please see the [User Manual](docs/USER_MANUAL.md).
 
 ## Citation
 

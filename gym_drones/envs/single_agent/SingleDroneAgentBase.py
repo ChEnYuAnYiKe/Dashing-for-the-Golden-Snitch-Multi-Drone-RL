@@ -152,7 +152,6 @@ class SingleDroneAgentBase(DroneBase):
         # share obs ouputs. For share obs, check the specific implementation
         # in MultiDroneAgentBase.computeShareObs() and MultiDroneAgentBase.reset()
 
-        # TODO : initialize random number generator with seed
         #### Set initial states ####################################
         super(DroneBase, self).reset(seed=seed)
         self.step_counter = 0
